@@ -58,7 +58,7 @@ window resolution=800x600
 
 
 ;*****Media files, icons, cursors*****
-media root path=C:\TGC\X10\FPSCREATORX10\
+media root path=C:\TGCSHARED\FPS Creator X10 Shared\
 icon1=iconX10.ico
 icon2=iconX10.ico
 icon3=iconX10.ico
