@@ -1,0 +1,92 @@
+; **** DarkBASIC Professional Project ****
+; Created by CodeSurge IDE
+version=DBP1.00
+project name=FPSC Map Editor
+
+; ****Source file information****
+main=FPSCREATOR.dba
+include1=FPSC-V10X\FPSC-MapEditor\FPSC-MapEditorMain.dba
+include2=FPSC-V10X\FPSC-MapEditor\FPSC-MapEditor.dba
+include3=FPSC-V10X\FPSC-Segments\FPSC-Segments.dba
+include4=FPSC-V10X\FPSC-Debug\FPSC-Debug.dba
+include5=FPSC-V10X\FPSC-Common\FPSC-Common.dba
+include6=FPSC-V10X\FPSC-Waypoints\FPSC-Waypoints.dba
+include7=FPSC-V10X\FPSC-Common\FPSC-ExeLink.dba
+include8=FPSC-V10X\FPSC-Entities\FPSC-EntitiesCore.dba
+include9=FPSC-V10X\FPSC-Player\FPSC-GunForEntity.dba
+include10=FPSC-V10X\FPSC-AI\FPSC-AI.dba
+include11=FPSC-V10X\FPSC-Game\FPSC-Universe.dba
+include12=FPSC-V10X\FPSC-Game\FPSC-Lighting.dba
+include13=FPSC-V10X\FPSC-Entities\FPSC-EntitiesAI.dba
+include14=FPSC-V10X\FPSC-AI\FPSC-AIHUD.dba
+include15=FPSC-V10X\FPSC-MapEditor\FPSC-Interface.dba
+include16=FPSC-V10X\FPSC-Player\FPSC-Gun.dba
+include17=FPSC-V10X\FPSC-Flak\FPSC-Flak.dba
+include18=FPSC-V10X\FPSC-Versions\FPSC-Full.dba
+include19=FPSC-V10X\FPSC-Screens\FPSC-SaveLoad.dba
+include20=FPSC-Entities\FPSC-EntitiesData.dba
+include21=FPSC-MapEditor\FPSC-MapFile.dba
+include22=FPSC-AgeRatings\FPSC-BLANK.dba
+final source=_Temp.dbsource
+
+;***Executable filename***
+executable=FPSC-MapEditor.exe
+build type=exe
+
+compression=NO
+encryption=NO
+card options window=NO
+
+; Debugger
+CLI=NO
+
+; *****Display Settings*****
+app title=FPSC Map Editor
+graphics mode=hidden
+fullscreen resolution=800x600x32
+window resolution=800x600
+
+
+;*****Media files, icons, cursors*****
+media root path=C:\TGC\X10\FPSCREATORX10\
+icon1=iconX10.ico
+icon2=iconX10.ico
+icon3=iconX10.ico
+icon4=iconX10.ico
+icon5=iconX10.ico
+icon6=iconX10.ico
+icon7=iconX10.ico
+icon8=iconX10.ico
+icon9=iconX10.ico
+icon10=iconX10.ico
+icon11=iconX10.ico
+icon12=iconX10.ico
+icon13=iconX10.ico
+icon14=iconX10.ico
+cursor1=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor2=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor3=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor4=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor5=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor6=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor7=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor8=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor9=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor10=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor11=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor12=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor13=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor14=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor15=FILES\EDITORS\GFX\MOVE4WAY.CUR
+
+;****Version Information****
+VerComments=
+VerCompany=
+VerFileDesc=
+VerFileNumber=
+VerInternal=
+VerCopyright=
+VerTrademark=
+VerFilename=
+VerProduct=
+VerProductNumber=v1.0

@@ -1,0 +1,378 @@
+rem
+rem DECAL
+rem
+
+_decal_init:
+
+rem Load in all decal
+gosub _decal_scaninallref
+
+rem X10 apply a soft decal shader for all decals (depth-buffer-read)
+dirbefore$=get dir$() : set dir commoneffects$
+tfile$="softdecal.fx" : gsoftdecalshader=loadinternaleffectunique(tfile$,0)
+addfiletocollection(commoneffects$+tfile$)
+set dir dirbefore$
+
+rem Precreate elements as each is unique (UV writing)
+for f=1 to decalelementmax
+ tobj=decalelementoffset+f : decalelement(f).obj=tobj
+ if object exist(tobj)=1 then delete object tobj
+ make object plain tobj,100,100
+ set object transparency tobj,2
+ set object collision off tobj
+ disable object zwrite tobj
+ set object texture tobj,0,0
+ set object light tobj,0
+ set object cull tobj,0
+ hide object tobj
+ rem X10 apply the soft decal effect to all decals
+ set object effect tobj,gsoftdecalshader
+ rem X10 - object only for main scene, refract scene and reflect scene (and shadow in shadow scene)
+ set object mask tobj,%110010,%0100,%10
+next f
+
+rem X10 ensure water ripple decal available
+decal$="ripple"
+gosub _decal_find
+if decalid>0
+ waterdecalripple=decalid
+ decal(waterdecalripple).active=1
+else
+ waterdecalripple=0
+endif
+waterdecalripplemaster=waterdecalripple
+
+rem X10 splash decal
+decal$="splash"
+gosub _decal_find
+if decalid>0
+ splashdecalid=decalid
+ decal(splashdecalid).active=1
+else
+ splashdecalid=0
+endif
+
+return
+
+_decal_loaddata:
+
+dim data$(100)
+filename$="gamecore\decals\"+decal$+"\decalspec.txt"
+addfiletocollection(filename$)
+load array filename$,data$()
+for l=0 to 99
+ line$=data$(l)
+ if len(line$)>0
+  if left$(line$,1)<>";"
+   `
+   rem take fieldname and value
+   for c=0 to len(line$)
+    if mid$(line$,c)="=" then mid=c : exit
+   next c
+   field$=lower$(removeedgespaces(left$(line$,mid-1)))
+   value$=removeedgespaces(right$(line$,len(line$)-mid))
+   `
+   rem take value 1 and 2 from value
+   for c=0 to len(value$)
+    if mid$(value$,c)="," then mid=c : exit
+   next c
+   value1=val(removeedgespaces(left$(value$,mid-1)))
+   value2=val(removeedgespaces(right$(value$,len(value$)-mid)))
+   `
+   rem decal
+   if field$="across" then decal(decalid).across=value1
+   if field$="down" then decal(decalid).down=value1
+   if field$="offsety" then decal(decalid).offsety=value1
+   if field$="scale" then decal(decalid).scale=value1
+   `
+  endif
+ endif
+next l
+undim data$()
+
+rem default scale is 100
+if decal(decalid).scale=0 then decal(decalid).scale=100
+
+rem Some pre-game calculations
+decal(decalid).framemax=decal(decalid).across*decal(decalid).down
+
+return
+
+_decal_load:
+
+rem Load decal data
+gosub _decal_loaddata
+
+rem Load decal image and store name in bank
+loaddecal("gamecore\decals\"+decal$+"\decal.tga",decalid)
+
+return
+
+_decal_scaninallref:
+
+rem Scan entire decals folder
+set dir "gamecore" : decalid=1
+empty array filelist$()
+buildfilelist("decals","")
+set dir ".."
+if array count(filelist$())>0
+ for chkfile=0 to array count(filelist$())
+  file$=filelist$(chkfile)
+  if file$<>"." and file$<>".."
+   tryfile$=lower$(right$(file$,9))
+   if left$(tryfile$,len(tryfile$)-4)="decal"
+    newdecal$=left$(file$,len(file$)-10)
+    for tdecalid=1 to decalmax
+     if decal(tdecalid).name$=newdecal$ then exit
+    next tdecalid
+    if tdecalid>decalmax
+     if decalid>decalmax
+      decalmax=decalid
+      dim decal(decalmax) as decaltype
+     endif
+     decal(decalid).name$=newdecal$
+     inc decalid
+    endif
+   endif
+  endif
+ next chkfile
+endif
+decalmax=decalid-1
+
+return
+
+_decal_scaninall:
+
+rem Load all decal data list in
+gosub _decal_scaninallref
+
+rem Load all decals
+for decalid=1 to decalmax
+ decal$=decal(decalid).name$
+ decal(decalid).active=1
+ gosub _decal_load
+next decalid
+
+return
+
+_decal_loadonlyactivedecals:
+
+rem Load all decals that have been activated
+for decalid=1 to decalmax
+ if decal(decalid).active=1
+  decal$=decal(decalid).name$
+  gosub _decal_load
+ endif
+next decalid
+
+return
+
+`
+` decal ELEMENTS HANDLING
+`
+
+_decalelement_create:
+
+for d=1 to decalelementmax
+ if decalelement(d).active=0 then exit
+next d
+if d<decalelementmax
+ rem activate new decal element
+ currentdecald=d
+ decalelement(d).decalid=decalid
+ decalelement(d).active=1
+ decalelement(d).xpos=decalx
+ decalelement(d).ypos=decaly
+ decalelement(d).zpos=decalz
+ decalelement(d).frame=0
+ decalelement(d).framedelay=timer()
+ decalelement(d).orient=decalorient
+ decalelement(d).originator=originatore
+ decalelement(d).looping=0
+ decalelement(d).alphafactor=decalalpha
+ rem prepare decal object
+ tobj=decalelement(d).obj
+ ty=decal(decalid).offsety
+ position object tobj,decalelement(d).xpos,decalelement(d).ypos+ty,decalelement(d).zpos
+ rem face camera or leave as is
+ if decalelement(d).orient=0
+  point object tobj,camera position x(playercam),camera position y(playercam),camera position z(playercam)
+  xrotate object tobj,0 : zrotate object tobj,0
+ endif
+ if decalelement(d).orient=1
+  rotate object tobj,decalorientx#,decalorienty#,decalorientz#
+ endif
+ if decalelement(d).orient=2
+  rotate object tobj,90,0,0
+ endif
+ if decalelement(d).orient=3
+  point object tobj,camera position x(playercam),camera position y(playercam),camera position z(playercam)
+ endif
+ if decalelement(d).orient=4
+  point object tobj,camera position x(playercam),camera position y(playercam),camera position z(playercam)
+  move object tobj,5.0
+ endif
+ enable object zbias tobj,0.0,0.0
+ rem texture for this decal type
+ texture object tobj,decal(decalid).imageid
+ rem X10 re-apply the soft decal effect after retexturing
+ set object effect tobj,gsoftdecalshader
+ rem set alpha factor as texturing erases it
+ set alpha mapping on tobj,decalelement(d).alphafactor
+ rem scale the decal
+ if decalscalemodx=0
+  decalelement(d).scalemodx=decal(decalid).scale
+  decalelement(d).scalemody=decal(decalid).scale
+ else
+  decalelement(d).scalemodx=decalscalemodx
+  decalelement(d).scalemody=decalscalemody
+ endif
+ scale object tobj,decalelement(d).scalemodx,decalelement(d).scalemody,100
+ rem show decal object
+ show object tobj
+else
+ tobj=0
+endif
+
+return
+
+_decalelement_continue:
+ `
+ rem decal is looping, merely need to continue the current decal
+ d=currentdecald
+ decalelement(d).looping=1
+ decalelement(d).keepalivefornextloop=1
+ if d>0 and decalelement(d).originator=originatore
+  `x9rem simply reset decal
+  `removed, decalelement(d).looping added and loop control now in control routine
+  `decalelement(d).frame=0
+  `decalelement(d).framedelay=timer()
+ else
+  rem different, so recreate
+  gosub _decalelement_create
+ endif
+ `
+return
+
+_decalelement_control:
+
+rem Control all decal activity
+for f=1 to decalelementmax
+ if decalelement(f).active=1
+  rem update decal object
+  tobj=decalelement(f).obj : tdetonate=0
+`  rem if decal not in visible screen, destroy for performance - off no code
+  if tdetonate=0
+   rem animation
+   decalid=decalelement(f).decalid
+   if (decalelement(f).frame<decal(decalid).framemax and decalelement(f).looping=1) or (decalelement(f).frame<decal(decalid).framemax-1 and decalelement(f).looping=0)
+    rem next frame
+    `x9decalelement(f).framedelay=decalelement(f).framedelay+1
+    `if decalelement(f).framedelay>0
+    ` decalelement(f).framedelay=0
+    ` decalelement(f).frame=decalelement(f).frame+1
+    `endif
+    rem X10 uses timing math rather than incremental math
+    `if timer()-decalelement(f).framedelay>35
+    if timer()-decalelement(f).framedelay>20
+     decalelement(f).framedelay=timer()
+     decalelement(f).frame=decalelement(f).frame+1
+     if decalelement(f).looping=1 and decalelement(f).keepalivefornextloop=1
+      if decalelement(f).frame>=decal(decalid).framemax
+       decalelement(f).keepalivefornextloop=0
+       decalelement(f).frame=0
+      endif
+     endif
+    endif   
+   else
+    rem no more animation
+    tdetonate=1
+   endif
+   rem write UV for correct anim frame
+   trenderdecalanimation=0
+   if tdetonate=0
+    rem 130907 - if decal visible, or ripple (which can be very close to player)
+    if object visible(tobj)=1 and object in screen(tobj)=1 then trenderdecalanimation=1
+    if decalelement(f).decalid=waterdecalripple then trenderdecalanimation=1
+   endif
+   if trenderdecalanimation=1
+    rem rotate to face camera if flagged
+    if decalelement(f).orient=0
+     point object tobj,camera position x(playercam),camera position y(playercam),camera position z(playercam)
+     xrotate object tobj,0 : zrotate object tobj,0
+    endif
+    if decalelement(f).orient=2
+     set object cull tobj,1
+    else
+     set object cull tobj,0
+    endif
+    if decalelement(f).orient=3
+     point object tobj,camera position x(playercam),camera position y(playercam),camera position z(playercam)
+    endif
+    rem animation UVs
+    tframe=decalelement(f).frame
+    ty=tframe/decal(decalid).across : tx=tframe-(ty*decal(decalid).across)
+    q#=1.0/(decal(decalid).across+0.0) : tx#=tx*q# : ty#=ty*q#
+    rem X10 use fU and fV [ and fSize ] to handle UV control from constant, rather than vertexdata write!
+    ` set effect constant float 12,"fU",frameu
+    ` set effect constant float 12,"fV",framev
+    lock vertexdata for limb tobj,0,1
+    rem x10 new plane
+    if 1
+     set vertexdata uv 0,tx#,ty#
+     set vertexdata uv 1,tx#+q#,ty#
+     set vertexdata uv 2,tx#,ty#+q#
+     set vertexdata uv 3,tx#+q#,ty#
+     set vertexdata uv 4,tx#+q#,ty#+q#
+     set vertexdata uv 5,tx#,ty#+q#
+    else
+     set vertexdata uv 0,tx#+q#,ty#
+     set vertexdata uv 1,tx#,ty#
+     set vertexdata uv 2,tx#+q#,ty#+q#
+     set vertexdata uv 3,tx#,ty#
+     set vertexdata uv 4,tx#,ty#+q#
+     set vertexdata uv 5,tx#+q#,ty#+q#
+    endif
+    unlock vertexdata
+   endif
+  endif
+  rem detonate trigger
+  if tdetonate=1
+   hide object decalelement(f).obj
+   decalelement(f).originator=0
+   decalelement(f).active=0
+  endif
+ endif
+next f
+
+return
+
+_decal_triggermaterialdebris:
+ `
+ rem takes tsoundmaterial,tsx#,tsy#,tsz#
+ if tsoundmaterial>0
+  decalid=material(tsoundmaterial-1).decalid
+  rem X10 - 120807 - only trigger material debris if above water (+10 wetzone)
+  if tsy#<waterlevel#+10 then decalid=0
+  if decalid>0
+   rem create the decal for this event
+   decalscalemodx=0 : rem FPSCV101 - fix
+   decalorient=4 : decalx=tsx# : decaly=tsy# : decalz=tsz#
+   decalalpha=100 : rem strong decal alpha from impacts and debris effects
+   originatore=-1 : gosub _decalelement_create
+  endif
+  rem FPSCV101 - add
+  tsoundmaterial=0
+ endif
+ `
+return
+
+`
+` FUNCTIONS FOR decal
+`
+
+function loaddecal(tfile$,decalid)
+ timg=loadinternalimagecompress(tfile$,5)
+ decal(decalid).imageid=timg
+endfunction timg
+

@@ -1,0 +1,20 @@
+rem
+rem AGE RATING (MATURE)
+rem
+
+_agerating_init:
+ `
+ rem MATURE has full blood
+ bloodmode$="on"
+ `
+ rem MATURE has full ragdoll no fades
+ gosub _physics_ragdollon
+ gfadeoutragdolls=0
+ `
+return
+
+_agerating_handleblood:
+ `
+ rem MATURE as no decal modification
+ `
+return

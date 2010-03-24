@@ -1,0 +1,92 @@
+rem
+rem ODE specific code
+rem
+
+rem Flag to enable/disable PHYSX EDITION (set in FPSC-Full.DBA)
+rem physxedition=1
+
+_ode_i:
+ `
+ rem start physics engine
+ if physxedition=1
+  phy start
+ endif
+ `
+return
+
+_ode_u:
+ `
+ rem update physics engine
+ if physxedition=1
+  phy update
+ endif
+ `
+return
+
+_ode_c:
+ `
+ rem end physics simulation
+ if physxedition=1
+  phy end
+ endif
+ `
+return
+
+_ode_uni:
+ `
+ rem Add universe to physx scene (physicsuniverseobj)
+ if physxedition=1
+  phy make rigid body static mesh physicsuniverseobj
+ endif
+ `
+return
+
+_ode_dyn:
+ `
+ rem Add specified object to physx scene
+ if physxedition=1
+  `
+  rem physics shape
+  if entityprofile(entid).collisionmode=3
+   `phy make rigid body dynamic cylinder tobj
+   phy make rigid body dynamic box tobj
+  else
+   if entityprofile(entid).collisionmode=4
+    phy make rigid body dynamic sphere tobj
+   else
+    phy make rigid body dynamic box tobj
+   endif
+  endif
+  `
+  rem control test object
+  if object exist(43211)=0
+   make object box 43211,50,50,50
+   position object 43211,250,105,-250
+   rotate object 43211,10,20,30
+   phy make rigid body dynamic box 43211
+  endif
+  `
+ endif
+ `
+return
+
+_ode_vel:
+ `
+ rem Move object in physx scene
+ if physxedition=1
+  tvel#=tvel*2.0
+  if tvel<>0
+   tvelx#=newxvalue(0,entityelement(e).ry,tvel#)
+   tvelz#=newzvalue(0,entityelement(e).ry,tvel#)
+   tangle#=sin(tangle)*tvel#
+   tvelx#=tvelx#*cos(tangle)
+   tvelz#=tvelz#*cos(tangle)
+   phy set rigid body linear velocity tobj,tvelx#,tangle#,tvelz#
+  endif
+  if entityelement(e).eleprof.rotatethrow<>0
+   trotate#=entityelement(e).eleprof.rotatethrow/10.0
+   phy set rigid body angular velocity tobj,trotate#,0,trotate#
+  endif
+ endif
+ `
+return

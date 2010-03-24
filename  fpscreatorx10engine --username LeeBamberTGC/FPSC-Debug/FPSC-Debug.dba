@@ -1,0 +1,1193 @@
+rem
+rem SUBROUTINES AND FUNCTIONS FOR DEBUG ONLY
+rem
+
+rem FUNCTIONS
+
+function hide3d()
+ backdrop off : sync off
+ set current bitmap 0
+ for o=1 to 50000
+  if object exist(o)=1
+   hide object o
+  endif
+ next o
+endfunction
+
+function show3d()
+ backdrop on : sync on
+ for o=1 to 50000
+  if object exist(o)=1
+   show object o
+  endif
+ next o
+endfunction
+
+function debugfilename(tfile$,desc$)
+ texit=0
+ tryfile$=tfile$
+ if lower$(right$(tfile$,3))="tga" then tryfile$=left$(tryfile$,len(tryfile$)-3)+imgext$
+ if file exist(tfile$)=0 and file exist(tryfile$)=0
+  timestampactivity(0,strarr$(53)+tfile$+") info:"+desc$)
+  timestampactivityflagged=1
+ endif
+endfunction
+
+function debugstring(tfile$,desc$)
+ timestampactivity(0,strarr$(54)+tfile$+" - "+desc$+")")
+endfunction
+
+function debugseevar(var)
+ timestampactivity(0,strarr$(55)+str$(var)+")")
+endfunction
+
+function debugpeek(desc$)
+ set text opaque
+ ink rgb(255,255,255),0
+ while spacekey()=0
+  text 100,150,desc$
+  sync
+ endwhile
+ while spacekey()=1 : sync : endwhile
+ set text transparent
+endfunction
+
+`
+` Progress Report Debug Function
+`
+
+function debugviewactivate(mode)
+ `
+ if gdebugreportmodestate=1
+  if mode=1
+   if bitmap exist(1)=0 then create bitmap 1,screen width(),150
+  else
+   if bitmap exist(1)=1 then delete bitmap 1
+  endif
+  set current bitmap 0
+ endif
+ `
+endfunction
+
+function debugviewprogressmax(progressmax)
+ dim mshot(progressmax)
+ lastmshotmem=0
+ gprogressmax=progressmax
+ gprogresscounter=0
+endfunction
+
+function debugviewtext(progress,gamedebugviewtext$)
+ `
+ rem leave immediately if mapeditor
+ if gmapeditmode=1 then exitfunction
+ `
+ rem FPSCV104RC9 - loading time readout to file
+ if gloadreportstate=1
+  rem get time, distance from last time, description, etc..
+  if gloadreporttime=0 then gloadreporttime=timer()
+  thetime=timer()-gloadreporttime
+  thetime$=right$(str$(1000000+thetime),6)
+  thediff=timer()-gloadreportlasttime
+  thediff$=right$(str$(1000000+thediff),6)
+  gloadreportlasttime=timer()
+  loadreport$(gloadreportindex)=thetime$+" : "+thediff$+" : "+gamedebugviewtext$
+  inc gloadreportindex : if gloadreportindex>10000 then gloadreportindex=10000
+  if progress>gprogressmax-10
+   rem only save in last 10 counts before end of progress bar
+   save array rootdir$+"\loadreport.txt",loadreport$()
+  endif
+ endif
+ `
+ rem progress bar based on progress/gprogressmax (some white and black)
+ if progress<>-1
+  rem Memory counters
+  mshoti=progress
+  `x9gamedebugviewtext$="["+right$(str$(1000+mshoti),3)+"] "+gamedebugviewtext$
+  gamedebugviewtext$=gamedebugviewtext$
+  mshotmem=GET MEMORY AVAILABLE(0)
+  if lastmshotmem=0 then lastmshotmem=mshotmem : mshotfirst=GET MEMORY AVAILABLE(0)
+  mshot(mshoti)=lastmshotmem-mshotmem
+  if mshot(mshoti)>mshotmemlargest then mshotmemlargest=mshot(mshoti)
+  if mshoti>lastmshoti
+   rem deposit memory use result to report
+   timestampactivity(0,strarr$(56)+str$(mshot(mshoti))+"K  "+gamedebugviewtext$)
+   lastmshoti=mshoti
+   lastmshotmem=mshotmem
+  endif
+  rem Game GUI Readout
+  if progress>gprogressmax then progress=gprogressmax
+  progress#=progress
+  progress#=progress#/(gprogressmax+0.0001)
+  if internalloaderhud>0 and internalloaderhud<=array count(hud())
+   rem Image Expand Bar Progress
+   `t1=hud(internalloaderhud).width*progress# 130907
+   t1=(hud(internalloaderhud).width*gratiox#)*progress#
+   size sprite internalloaderhud,t1,hud(internalloaderhud).height
+   paste sprite internalloaderhud,hud(internalloaderhud).posx,hud(internalloaderhud).posy
+  else
+   rem Default Bar Progress
+   if gdebugreportmodestate=1
+    progressx=54 : progressy=392 : progressh=18
+    progressw=screen width()-100.0001
+    if screen width()=800 then progressw=693
+    t1=progressw*progress# : t2=progressx+t1
+    ty=(screen height()-150)-(screen height()/10)
+    if screen height()=600 then ty=progressy
+    if t2>progressx then ink rgb(255,255,255),0 : box progressx,ty,t2,ty+progressh
+    if t2<progressx+progressw then ink rgb(0,0,0),0 : box t2,ty,progressx+progressw,ty+progressh
+   endif
+  endif
+ endif
+ `
+ rem This could be expensive
+ `x9if gdebugreportmodestate=0 then sync mask 0x1 : sync
+ rem X10 keep the loading bar refreshed if final game
+ if grealgameviewstate=1
+  if gdebugreportmodestate=0 then sync mask 0x1 : sync
+ endif
+ `
+ rem Report On Progress Percentage
+ if progress<>-1
+  if progress>gprogressmax then progress=gprogressmax
+  progress#=progress : progress#=progress#/(gprogressmax+0.0001)
+  progress#=progress#*100.0
+ endif
+ `
+ rem TestGameFromEditor Mode
+ if gtestgamemodefromeditor=1
+  rem detect if CANCEL early (while building)
+  if gtestgamemodefromeditorokaypressed=0
+   open file map 2, "FPSEXCHANGE"
+   wait for file map event 2
+   if get file map dword( 2, 994 ) = 1
+    `
+    rem As can take time, tell user can take time
+    open file map 3, "FPSTESTGAMEDIALOG"
+    set file map dword 3, 12, 1
+    set file map string$ 3, 1000, strarr$(630)
+    wait for file map event 3
+    while get file map dword ( 3, 12 ) = 1
+     wait for file map event 3
+    endwhile
+    close file map 3
+    `
+    rem terminate test game mid-build
+    set file map string$ 2, 1000, "bin\FPSC-MapEditor.exe"
+    set file map string$ 2, 1256, "-r"
+    set file map dword 2, 994, 2
+    set file map dword 2, 924, 1
+    wait for file map event 2
+    close file map 2
+    rem Terminate
+    if 1 then timestampactivity(0,strarr$(57))
+    end
+   else
+    rem Update Test Game Dialog progress and status text
+    open file map 1, "FPSTESTGAMEDIALOG"
+    if progress<>-1
+     set file map dword 1, 8, int(progress#)
+    endif
+    rem Display Status Text
+    set file map string$ 1, 1000, gamedebugviewtext$
+    set file map dword 1, 12, 1
+    wait for file map event 1
+    close file map 1
+   endif
+   close file map 2
+  endif
+ endif
+ rem Build Executable Game Mode
+ if gcompilestandaloneexe=1
+  rem check if build cancelled
+  tokay=0
+  open file map 2, "FPSEXCHANGE"
+  wait for file map event 2
+  if get file map dword( 2, 994 ) = 1 then tokay=1
+  close file map 2
+  if tokay=1
+   rem terminate build early
+   open file map 1, "FPSBUILDGAME"
+   set file map dword 1, 108, 1
+   set file map dword 1, 112, 0
+   rem close dialog (cannot reload data into it when RELOAD MAPEDITOR)
+   set file map dword 1, 24, 1
+   wait for file map event 1
+   close file map 1
+   rem call map editor back
+   open file map 2, "FPSEXCHANGE"
+   set file map string$ 2, 1000, "bin\FPSC-MapEditor.exe"
+   set file map string$ 2, 1256, "-r"
+   set file map dword 2, 994, 0
+   set file map dword 2, 924, 1
+   wait for file map event 2
+   close file map 2
+   rem terminate
+   if 1 then timestampactivity(0,strarr$(58))
+   end
+  else
+   rem game build progress bar and text
+   open file map 1, "FPSBUILDGAME"
+   if progress<>-1
+    set file map dword 1, 108, 1
+    set file map dword 1, 112, int(progress#)
+   endif
+   set file map dword 1, 40, 12
+   set file map dword 1, 44, 1
+   if level>0 and level<=glevelmax
+    set file map string$ 1, 1000, strarr$(59)+str$(level)+"\"+str$(glevelmax)+" : "+gamedebugviewtext$
+   else
+    set file map string$ 1, 1000, gamedebugviewtext$
+   endif
+   wait for file map event 1
+   close file map 1
+  endif
+ endif
+ `
+ rem debug view text
+ if gdebugreportmodestate=1 and gmapeditmode=0
+  `
+  thetime=timer()-gamedebugviewtime
+  thetime$=right$(str$(1000000+thetime),6)
+  themem=gamedebugviewmem-GET MEMORY AVAILABLE(0)
+  themem$=right$(str$(10000000+themem),7)
+  themem$=" [ "+themem$+" ] ("
+  if (themem-gamedebugviewlastmem)>0 then themem$=themem$+"+"
+  themem$=themem$+str$(themem-gamedebugviewlastmem)+")  :  "
+  gamedebugview$=thetime$+themem$+gamedebugviewtext$+chr$(13)+chr$(10)+gamedebugview$
+  gamedebugviewlastmem=themem
+  gosub _gamemain_writetexttodebugview
+  debugviewupdate(1)
+  if gdebugreportstepthroughstate=1
+   rem step through debugging
+   wait key
+  endif
+  `
+ endif
+ exitfunction
+ `
+ _gamemain_writetexttodebugview:
+  if gdebugreportmodestate=1
+   if bitmap exist(1)=1
+    set current bitmap 1
+    cls rgb(0,48,0)
+    ink rgb(255,255,255),0
+    print gamedebugview$
+    ink rgb(0,255,0),0
+    gosub _gamemain_updatedebugviewstats
+    set current bitmap 0
+   endif
+   gamedebugrefresh=1
+  endif
+ return
+ `
+ _gamemain_updatedebugviewstats:
+  for stat=1 to 9
+   if stat=1 then stat$=strarr$(60)
+   if stat=2 then stat$=strarr$(61) : stat2=segidmaster
+   if stat=3 then stat$=strarr$(62) : stat2=entidmaster
+   if stat=4 then stat$=strarr$(63) : stat2=entityelementlist
+   if stat=5 then stat$=strarr$(64) : stat2=aiindexmaster
+   if stat=6 then stat$=strarr$(65) : stat2=texturebankmax
+   if stat=7 then stat$=strarr$(66) : stat2=imagebankmax
+   if stat=8 then stat$=strarr$(67) : stat2=effectbankmax
+   if stat=9 then stat$=strarr$(68) : stat2=waypointmax
+   if stat>1
+    stat2$=str$(stat2) : stat3$="" : for st=1 to stat2 step 2 : stat3$=stat3$+"|" : next st
+    stat1$=stat$ : stat2$=stat2$+space$(3-len(stat2$))+stat3$
+   else
+    stat1$=stat$ : stat2$=""
+   endif
+   text screen width()-(screen width()/4),(stat-1)*14,stat1$
+   text screen width()-(screen width()/8),(stat-1)*14,stat2$
+  next stat
+ return
+ `
+endfunction
+
+function debugviewupdate(doisync)
+ `
+ if gdebugreportmodestate=1 and gmapeditmode=0
+  if gamedebugrefresh=1
+   gamedebugrefresh=0
+   if bitmap exist(1)=1
+    set current bitmap 1
+    get image editorimagesoffset+1,0,0,screen width(),150,1
+   endif
+  endif
+  set current bitmap 0
+  if doisync=0 and image exist(editorimagesoffset+1)=1 then paste image editorimagesoffset+1,0,screen height()-150
+  if doisync=1 and image exist(editorimagesoffset+1)=1 then paste image editorimagesoffset+1,0,screen height()-150
+  if doisync=1 then sync
+ endif
+ `
+endfunction
+
+function debuggameoverlaysystem(justhandlex10effects)
+`
+rem collect perf data
+perf(1) = statistic(1)
+perf(2) = screen fps()
+if scancode()<>15
+ inc wshoti : if wshoti>400 then wshoti=0
+endif
+wshot(wshoti,0)=perf(1) : if wshot(wshoti,0)>wshotmax(0) then wshotmax(0)=wshot(wshoti,0)
+wshot(wshoti,1)=perf(2) : if wshot(wshoti,1)>wshotmax(1) then wshotmax(1)=wshot(wshoti,1)
+wshot(wshoti,2)=statistic(8) : if wshot(wshoti,2)>wshotmax(2) then wshotmax(2)=wshot(wshoti,2)
+wshot(wshoti,3)=perf(6) : if wshot(wshoti,3)>wshotmax(3) then wshotmax(3)=wshot(wshoti,3)
+wshot(wshoti,4)=perf(7) : if wshot(wshoti,4)>wshotmax(4) then wshotmax(4)=wshot(wshoti,4)
+`
+rem uses perftimer now for cycle accuracy (once a second so I can read changes)
+av#=20.0
+inc gameperftimetracker
+if gameperftimetracker>av#
+ gameperftimetracker=0
+ i=3 : perf(i) = gameperftotalcount/av# : gameperftotalcount=0
+ i=4 : perf(i) = gameperflighting/av# : gameperflighting=0
+ i=5 : perf(i) = gameperfplayer/av# : gameperfplayer=0
+ i=6 : perf(i) = gameperfentities/av# : gameperfentities=0
+ i=7 : perf(i) = gameperfgun/av# : gameperfgun=0
+ i=8 : perf(i) = gameperfmisc/av# : gameperfmisc=0
+ i=9 : perf(i) = gameperfdebug/av# : gameperfdebug=0
+ i=10 : perf(i) = gameperfphysics/av# : gameperfphysics=0
+ i=11 : perf(i) = gameperfsync/av# : gameperfsync=0
+ i=12 : perf(i) = gameperfentities1/av# : gameperfentities1=0
+ i=13 : perf(i) = gameperfentities2/av# : gameperfentities2=0
+ i=14 : perf(i) = gameperfentities3/av# : gameperfentities3=0
+ i=15 : perf(i) = gameperfentities4/av# : gameperfentities4=0
+ i=16 : perf(i) = gameperfentities5/av# : gameperfentities5=0
+ i=17 : perf(i) = gameperfai/av# : gameperfai=0 
+ for i=1 to 9 : perfsync(i)=gamesyncperfsync(i)/av# : gamesyncperfsync(i)=0 : next i
+endif
+
+rem X10 effect change flags
+tupdatefog=0 : tupdatebloom=0 : tupdatewater=0 : tupdateshadow=0 : tupdaterefractivity=0
+tupdatewaterlevel=0
+teffectschanged=-1
+tvolchanged=0
+
+rem X10 if asked to retain states (moved from within debugmode=1)
+if x10effectmenu(19)<>1
+ if hudskyvalue<=1 or hudskymax<=1
+  x10effectmenu(0)=0
+ else
+  if hudskyvalue=hudskymax
+   x10effectmenu(0)=100
+  else
+   x10effectmenu(0)=(100/(hudskymax-1))*(hudskyvalue-1)
+  endif
+ endif
+ x10effectmenu(1)=guivisualsettings.ambience
+ x10effectmenu(2)=getnearestposincolorbarRGB(hudfogred(waterisbelowplayer-1),hudfoggreen(waterisbelowplayer-1),hudfogblue(waterisbelowplayer-1))
+ x10effectmenu(3)=(4000-hudfognear(waterisbelowplayer-1))/40.0
+ x10effectmenu(4)=hudbloomwidth(waterisbelowplayer-1)
+ x10effectmenu(5)=hudbloomstrength(waterisbelowplayer-1)
+ x10effectmenu(6)=hudwaterspeed
+ x10effectmenu(7)=hudwaterdepth
+ x10effectmenu(8)=getnearestposincolorbar(hudwatercolor)
+ x10effectmenu(9)=getnearestposincolorbar(hudunderwatercolor)
+ x10effectmenu(10)=hudwaterrefl
+ x10effectmenu(11)=hudwaterrefr
+ x10effectmenu(12)=hudwaterfresnel
+ `x10effectmenu(13)=50 : oldwaterlevel#=waterlevel# `done outside of TAB (tab session relative changes)
+ x10effectmenu(14)=hudshadowstrength
+ x10effectmenu(15)=hudshadowquantity
+ x10effectmenu(16)=hudglassrefr
+else
+ rem values retained from previous session
+ rem also trigger volume to update
+ hudupdateeffects=1
+ tupdatefog=1 : tupdatebloom=1 : tupdatewater=1 : tupdateshadow=1 : tupdaterefractivity=1
+ tupdatewaterlevel=1
+ teffectschanged=0
+ tvolchanged=1
+endif
+rem [19] 0-first test game, 1-repeat test game (retain settings), 2-normal operation
+x10effectmenu(19)=2
+
+rem Optional additional statistics
+if justhandlex10effects=0 and ghidehudgraphics=0
+if debugviewmode=0
+ `
+ rem Appreviated for game scene (temp)
+ t$="" : t2$="" : t3$=""
+ tverbosedebug=0
+ if testgametabtoggle=2 then tverbosedebug=1
+ if tverbosedebug=1
+  if 0 : rem SET TO ONE TO GET TIMING DETAILS
+   for i=1 to 11
+    if i=1 then t$=t$+"PO"
+    if i=2 then t$=t$+"FR"
+    if i=3 then t$=t$+"##"
+    if i=4 then t$=t$+"LG"
+    if i=5 then t$=t$+"PL"
+    if i=6 then t$=t$+"EN"
+    if i=7 then t2$=t2$+"GU"
+    if i=8 then t2$=t2$+"MI"
+    if i=9 then t2$=t2$+"DB"
+    if i=10 then t2$=t2$+"PH"
+    if i=11 then t2$=t2$+"SY"
+    if i<=6
+     t$=t$+":"+str$(perf(i))
+    else
+     t2$=t2$+":"+str$(perf(i))
+    endif
+    if i=1 then t$=t$+" ("+str$(statistic(5))+")"
+    rem X10 optional debug readout of entity processing - legacy entity speed issues
+    if 1
+     if i=6
+      rem extra entity display
+      if 0
+       rem Entity investigation
+       t3$="Entity Logic 1:"+str$(perf(12))+" 2:"+str$(perf(13))+" 3:"+str$(perf(14))+" 4:"+str$(perf(15))+" 5:"+str$(perf(16))+" OBS:"+str$(gtotalobstaclecount)
+      else
+       rem Sync investigation
+       t3$="SYNC Timing 1:"+str$(perfsync(1))+" 2:"+str$(perfsync(2))+" 3:"+str$(perfsync(3))+" 4:"+str$(perfsync(4))+" 5:"+str$(perfsync(5))+" 6:"+str$(perfsync(6))+" 7:"+str$(perfsync(7))+" 8:"+str$(perfsync(8))+" 9:"+str$(perfsync(9))
+      endif
+     endif
+    endif
+    if i<=6
+     t$=t$+"   "
+    else
+     t2$=t2$+"   "
+    endif
+   next i
+   t2$=t2$+" AI:"+str$(perf(17))
+   ink rgb(255,255,0),0
+   `gun blocks text now
+   `center text screen width()/2,screen height()-64,t3$
+   `center text screen width()/2,screen height()-48,t$
+   `center text screen width()/2,screen height()-32,t2$
+   center text screen width()/2,200-64,t3$
+   center text screen width()/2,200-48,t$
+   center text screen width()/2,200-32,t2$
+  endif
+ else
+  `have resource meter now
+  `t$="polygons : "+str$(perf(1))+"   framerate : "+str$(perf(2))
+  `ink rgb(255,255,0),0
+  `center text screen width()/2,screen height()-32,t$
+ endif
+ `
+ rem hide Mouse
+ hide mouse
+ `
+ rem TAB relative means while the TAB is opened, the slide reflects an offset change
+ x10effectmenu(13)=50-((abs(camera position y(playercam))-waterlevel#)/3)
+ if x10effectmenu(13)<0 then x10effectmenu(13)=0
+ if x10effectmenu(13)>100 then x10effectmenu(13)=100
+ oldwaterlevel#=abs(camera position y(playercam))
+ `
+else
+ `
+ rem Mouse is used
+ show mouse
+ `
+ rem X10 Effects Menu
+ tnumoptions=17
+ tmarginy=30-16
+ twidth=238
+ teffectitemyspacing=40
+ if screen height()<=600 then teffectitemyspacing=34
+ theight=(tnumoptions*teffectitemyspacing)+(tmarginy*2)
+ tsliderwidth=100
+ tstatschanged=0
+ `
+ rem Control of mouse
+ if x10effectmenudata.tmouselook=0
+  tmx=mousex() : tmy=mousey()-x10effectmenudata.ttop
+  tdlta=mousemovex() : tdlta=mousemovey() : tdlta=mousemovez()
+  if x10effectmenudata.thighlight=-1
+   rem not dragging
+   thighlight=0
+   if tmy>x10effectmenudata.ttop and tmy<x10effectmenudata.ttop+theight
+    if tmx>x10effectmenudata.tleft and tmx<x10effectmenudata.tleft+twidth
+     for t=0 to tnumoptions-1
+      tcony=ttop+tmarginy+(t*teffectitemyspacing)
+      if tmy>tcony and tmy<tcony+teffectitemyspacing
+       thighlight=1+t
+      endif
+     next t
+    endif
+   endif
+   if mouseclick()=0 and x10effectmenudata.tclick=2 then x10effectmenudata.tclick=0
+   if mouseclick()=1 and x10effectmenudata.tclick=0 then x10effectmenudata.tclick=1
+   if x10effectmenudata.tclick=1
+    rem if click out of menu for mouselook
+    if tmx<x10effectmenudata.tleft-16 or tmx>x10effectmenudata.tleft+twidth+16
+     rem AND clicking outside of volume menu
+     if tmx<x10volumemenudata.tleft or tmy>x10volumemenudata.ttop+255
+      rem and not dragging volume
+      if x10volumemenudata.thighlight=-1
+       x10effectmenudata.tmouselook=1
+       x10effectmenudata.tclick=0
+      endif
+     endif
+    else
+     x10effectmenudata.tclick=2
+     if thighlight>0
+      rem highlight an item
+      t=thighlight-1
+      tval=x10effectmenu(t)
+      tsliderpos=tval
+      twidthperc#=(tsliderwidth/50)
+      tconx=x10effectmenudata.tleft+(twidth/2)
+      tblobx=tconx-tsliderwidth+(tsliderpos*twidthperc#)
+      if tmx<tblobx-10
+       rem step left
+       if t=0 and hudskymax>1
+        tperc#=(100/(hudskymax-1)) : x10effectmenu(t)=x10effectmenu(t)-tperc#
+       else
+        x10effectmenu(t)=x10effectmenu(t)-1
+       endif
+       if x10effectmenu(t)<0 then x10effectmenu(t)=0
+       tstatschanged=1+t
+       if tstatschanged=14 then usewaterlevelfromprevioussession#=-1 : rem manual water change
+      else
+       if tmx>tblobx+10
+        rem step right
+        if t=0 and hudskymax>1
+         tperc#=(100/(hudskymax-1)) : x10effectmenu(t)=x10effectmenu(t)+tperc#
+        else
+         x10effectmenu(t)=x10effectmenu(t)+1
+        endif
+        if x10effectmenu(t)>100 then x10effectmenu(t)=100
+        tstatschanged=1+t
+        if tstatschanged=14 then usewaterlevelfromprevioussession#=-1 : rem manual water change
+       else
+        rem click to drag
+        x10effectmenudata.thighlight=t
+        x10effectmenudata.tdrag=(tblobx-tmx)/2.0
+       endif
+      endif
+     else
+      rem toggle menu position
+      if tmy<x10effectmenudata.ttop+tmarginy
+       if x10effectmenudata.tleft=0
+        x10effectmenudata.tleft=screen width()-238
+        x10effectmenudata.ttop=0
+       else
+        x10effectmenudata.ttop=screen height()-theight
+        x10effectmenudata.tleft=0
+       endif
+      endif
+     endif
+    endif
+   endif
+  else
+   rem dragging
+   thighlight=1+x10effectmenudata.thighlight
+   if mouseclick()=0 and x10effectmenudata.thighlight<>-1 then x10effectmenudata.thighlight=-1
+   if x10effectmenudata.thighlight<>-1
+    t=x10effectmenudata.thighlight
+    tconx=x10effectmenudata.tleft+(twidth/2)
+    tnewblobx=(tmx-(tconx-tsliderwidth))/2.0
+    x10effectmenu(t)=tnewblobx+x10effectmenudata.tdrag
+    if x10effectmenu(t)<0 then x10effectmenu(t)=0
+    if x10effectmenu(t)>100 then x10effectmenu(t)=100
+    tstatschanged=1+t
+    if tstatschanged=14 then usewaterlevelfromprevioussession#=-1 : rem manual water change
+   endif
+  endif
+ else
+  rem release mouselook when release button
+  if mouseclick()=0 then x10effectmenudata.tmouselook=0
+ endif
+ `
+ rem Border
+ paste sprite x10effectmenuimagestart+0,x10effectmenudata.tleft,x10effectmenudata.ttop
+ size sprite x10effectmenuimagestart+0,238,705
+ `
+ rem Sliders
+ for t=0 to tnumoptions-1
+  `
+  rem color
+  if thighlight=1+t
+   ink rgb(255,255,255),0
+   set sprite alpha x10effectmenuimagestart+1,255
+   set sprite alpha x10effectmenuimagestart+2,255
+  else
+   ink rgb(192,192,192),0
+   set sprite alpha x10effectmenuimagestart+1,230
+   set sprite alpha x10effectmenuimagestart+2,230
+  endif
+  `
+  rem control line
+  tconx=x10effectmenudata.tleft+(twidth/2)
+  tcony=x10effectmenudata.ttop+tmarginy+(t*teffectitemyspacing)
+  `
+  rem title
+  ttype=0
+  if 1
+   if t=2 then ttype=1
+   if t=8 then ttype=1
+   if t=9 then ttype=1
+   paste sprite x10effectmenuimagestart+5+t,tconx-100,tcony+6
+  else
+   if t=0 then t$="SKY VALUE"
+   if t=1 then t$="AMBIENT LIGHT"
+   if t=2 then t$="FOG COLOR" : ttype=1
+   if t=3 then t$="FOG RANGE"
+   if t=4 then t$="BLOOM SIZE"
+   if t=5 then t$="BLOOM STRENGTH"
+   if t=6 then t$="WATER SPEED"
+   if t=7 then t$="WATER SMOOTHNESS"
+   if t=8 then t$="WATER COLOR" : ttype=1
+   if t=9 then t$="UNDERWATER COLOR" : ttype=1
+   if t=10 then t$="WATER REFLECTIVITY"
+   if t=11 then t$="WATER REFRACTIVITY"
+   if t=12 then t$="WATER FRESNEL TERM"
+   if t=13 then t$="WATER LEVEL"
+   if t=14 then t$="SHADOW STRENGTH"
+   if t=15 then t$="SHADOW QUANTITY"
+   if t=16 then t$="WINDOW REFRACTIVITY"
+   center text tconx,tcony,t$
+  endif
+  `
+  rem slider
+  tslidery=tcony+25
+  if ttype=1
+   paste sprite x10effectmenuimagestart+2,tconx-tsliderwidth,tslidery
+  else
+   paste sprite x10effectmenuimagestart+1,tconx-tsliderwidth,tslidery
+  endif
+  `
+  rem value or color
+  tval=x10effectmenu(t)
+  if ttype=1
+   rem color
+   tcolboxx=tconx+tsliderwidth
+   tcolboxy=tslidery
+   col=hudcolorbar(tval)
+   cr=(col && 0xFF0000)>>16
+   cg=(col && 0x00FF00)>>8
+   cb=(col && 0x0000FF)
+   set sprite diffuse x10effectmenuimagestart+4,cr,cg,cb
+   if thighlight=1+t
+    set sprite alpha x10effectmenuimagestart+4,255
+   else
+    set sprite alpha x10effectmenuimagestart+4,230
+   endif
+   size sprite x10effectmenuimagestart+4,16,16
+   paste sprite x10effectmenuimagestart+4,tcolboxx-26,tcolboxy-20
+  else
+   rem values
+   `center text tconx+tsliderwidth-22,tslidery-20,str$(tval)
+   rem 210807 - override sky value with actual sky value
+   storetval=tval
+   if t=0 then tval=hudskyvalue
+   printvalue(tconx+tsliderwidth-16,tslidery-20,tval)
+   tval=storetval
+  endif
+  `
+  rem draggable blob
+  tsliderpos=tval
+  twidthperc#=(tsliderwidth/50)
+  paste sprite x10effectmenuimagestart+3,tconx-tsliderwidth+(tsliderpos*twidthperc#)-8,tslidery-6
+  `
+ next t
+ `
+ rem X10 change globals related to stats above
+ if tstatschanged>0
+  teffectschanged=tstatschanged
+ endif
+ `
+ rem X10 Volume Menu
+ rem control volume sliders
+ tmx=mousex() : tmy=mousey()-x10volumemenudata.ttop
+ tmargin=50 : twidth=238 : theight=255 : tnumoptions=5
+ tconx=x10volumemenudata.tleft+17
+ if x10volumemenudata.thighlight=-1
+  rem not dragging
+  thighlight=0
+  if tmy>x10volumemenudata.ttop and tmy<x10volumemenudata.ttop+theight
+   if tmx>x10volumemenudata.tleft and tmx<x10volumemenudata.tleft+twidth
+    for t=0 to tnumoptions-1
+     tcony=ttop+tmargin+(t*38)
+     if tmy>tcony and tmy<tcony+38
+      thighlight=1+t
+     endif
+    next t
+   endif
+  endif
+  if mouseclick()=0 and x10volumemenudata.tclick=2 then x10volumemenudata.tclick=0
+  if mouseclick()=1 and x10volumemenudata.tclick=0 then x10volumemenudata.tclick=1
+  if x10volumemenudata.tclick=1
+   x10volumemenudata.tclick=2
+   if thighlight>0
+    rem highlight an item
+    t=thighlight-1
+    tpos#=volumemeter(t) : tpos#=(188.0/100.0)*tpos#
+    tblobx=tconx+tpos#
+    if tmx<tblobx-10
+     rem step left
+     volumemeter(t)=volumemeter(t)-10
+     if volumemeter(t)<0 then volumemeter(t)=0
+     tvolchanged=1
+    else
+     if tmx>tblobx+10
+      rem step right
+      volumemeter(t)=volumemeter(t)+10
+      if volumemeter(t)>100 then volumemeter(t)=100
+      tvolchanged=1
+     else
+      rem click to drag
+      x10volumemenudata.thighlight=t
+      x10volumemenudata.tdrag=(tblobx-tmx)/2.0
+     endif
+    endif
+   else
+    rem toggle menu position
+    `if tmy<x10volumemenudata.ttop+tmargin
+    ` if x10volumemenudata.tleft=0
+    `  x10volumemenudata.tleft=screen width()-twidth
+    ` else
+    `  x10volumemenudata.tleft=0
+    ` endif
+    `endif
+   endif
+  endif
+  rem when not dragging, no title or loading music
+  if gvolumetitlemusic>0
+   if sound looping(gvolumetitlemusic)=1
+    stop sound gvolumetitlemusic
+   endif
+  endif
+  if gvolumeloadingmusic>0
+   if sound looping(gvolumeloadingmusic)=1
+    stop sound gvolumeloadingmusic
+   endif
+  endif
+ else
+  rem dragging volume slider
+  thighlight=1+x10volumemenudata.thighlight
+  if mouseclick()=0 and x10volumemenudata.thighlight<>-1 then x10volumemenudata.thighlight=-1
+  if x10volumemenudata.thighlight<>-1
+   t=x10volumemenudata.thighlight
+   tnewblobx=((tmx-tconx)/188.0)*100.0
+   tnewvol=tnewblobx+x10volumemenudata.tdrag
+   if volumemeter(t)<>tnewvol then tvolchanged=1
+   volumemeter(t)=tnewvol
+   if volumemeter(t)<0 then volumemeter(t)=0
+   if volumemeter(t)>100 then volumemeter(t)=100
+  endif
+  rem while dragging, can play highlighted title or loading
+  if t=0 or t=1
+   if t=0 and gvolumetitlemusic>0
+    if sound looping(gvolumetitlemusic)=0
+     loop sound gvolumetitlemusic
+    endif
+   endif
+   if t=1 and gvolumeloadingmusic>0
+    if sound looping(gvolumeloadingmusic)=0
+     loop sound gvolumeloadingmusic
+    endif
+   endif
+  endif
+ endif
+ rem draw volume menu
+ img=x10effectmenuimagestart+56
+ rmposx=x10volumemenudata.tleft
+ rmposy=x10volumemenudata.ttop
+ paste sprite img+1,rmposx,rmposy
+ for rmi=0 to 4
+  paste sprite img+2+(rmi*3)+0,rmposx+19,rmposy+50+(rmi*38) : rem label
+  paste sprite img+2+(rmi*3)+1,rmposx+17,rmposy+70+(rmi*38) : rem bar
+  tpos#=volumemeter(rmi) : tpos#=(188.0/100.0)*tpos#
+  paste sprite img+2+(rmi*3)+2,rmposx+15+tpos#,rmposy+64+(rmi*38) : rem handle
+ next rmi
+ `
+endif
+
+rem Debug lines
+`text 100,100,str$(hudwatercolor)+" = "+str$(rgbr(hudwatercolor))+" "+str$(rgbg(hudwatercolor))+" "+str$(rgbb(hudwatercolor))
+`text screen width()-24,screen height()-20,str$(scancode())
+
+rem Portal Control
+if scancode()=26 then g_iPortal = 1 : set static objects wireframe on
+if scancode()=27 then g_iPortal = 0 : set static objects wireframe off
+
+rem Restoration key
+`x9if k$="t" then sync rate 30 : entitysystemdisabled=0 : lightingsystemdisabled=0
+
+rem Disable parts of engin
+`x9if k$="-" then entitysystemdisabled=1
+`x9if k$="=" then lightingsystemdisabled=1
+
+rem Sync control
+`x9if k$="x" then sync rate 0
+`x9if k$="u" then sync rate 5
+
+rem Collision control
+`x9if k$="m" then deactivatecollision=0
+`x9if k$="n" then deactivatecollision=1
+
+rem glide for floating
+if player(1).health>0
+ if k$="z" then grav#=-2.0 : jumpaction=0
+endif
+
+rem Mouse control/pointer (press TAB to toggle menu view)
+if (scancode()<>15) and debugviewtog=1 then debugviewtog=0
+if (scancode()=15 or triggerdebugview>0) and debugviewtog=0
+ if triggerdebugview>0
+  debugviewmode=triggerdebugview-1
+  triggerdebugview=0
+ else
+  testgametabtoggle=testgametabtoggle+1
+  if testgametabtoggle=3 then testgametabtoggle=0
+  if testgametabtoggle=0 then debugviewmode=0
+  if testgametabtoggle=1 then debugviewmode=1
+  if testgametabtoggle=2 then debugviewmode=0
+  debugviewtog=1
+ endif
+endif
+
+rem endif related to 'justhandlex10effects' (310707 - moved from further below)
+endif
+
+rem X10 act on effects changed
+if teffectschanged<>-1
+ for t=1 to 17
+  rem one or all
+  if teffectschanged=0 then tstatschanged=t
+  if teffectschanged>0 then tstatschanged=teffectschanged
+  rem update actual value
+  if tstatschanged=1
+   rem sky as a percentage
+   if x10effectmenu(0)=0 or hudskymax<=1
+    hudskyvalue=1
+   else
+    if x10effectmenu(0)=100
+     hudskyvalue=hudskymax
+    else
+     tperc#=100/(hudskymax-1)
+     hudskyvalue=1+(x10effectmenu(tstatschanged-1)/tperc#)
+    endif
+   endif 
+   gosub _sky_loadbyvalue
+  endif
+  if tstatschanged=2 then guivisualsettings.ambience=x10effectmenu(tstatschanged-1) : guivisualsettings.updateflag=1
+  if tstatschanged=3
+   col=hudcolorbar(x10effectmenu(tstatschanged-1))
+   hudfogred(waterisbelowplayer-1)=(col && 0xFF0000)>>16
+   hudfoggreen(waterisbelowplayer-1)=(col && 0x00FF00)>>8
+   hudfogblue(waterisbelowplayer-1)=(col && 0x0000FF)
+   tupdatefog=1
+  endif
+  if tstatschanged=4
+   hudfognear(waterisbelowplayer-1)=4000-(x10effectmenu(tstatschanged-1)*40) : tupdatefog=1
+   if x10effectmenu(tstatschanged-1)>0
+    hudfogon=1
+   else
+    hudfogon=0
+   endif
+  endif
+  if tstatschanged=5 then hudbloomwidth(waterisbelowplayer-1)=x10effectmenu(tstatschanged-1) : tupdatebloom=1
+  if tstatschanged=6
+   hudbloomstrength(waterisbelowplayer-1)=x10effectmenu(tstatschanged-1) : tupdatebloom=1
+   if hudbloomstrength(waterisbelowplayer-1)<1 then hudbloomstrength(waterisbelowplayer-1)=1
+  endif
+  if tstatschanged=7 then hudwaterspeed=x10effectmenu(tstatschanged-1) : tupdatewater=1
+  if tstatschanged=8 then hudwaterdepth=x10effectmenu(tstatschanged-1) : tupdatewater=1
+  if tstatschanged=9 then hudwatercolor=hudcolorbar(x10effectmenu(tstatschanged-1)) : tupdatewater=1
+  if tstatschanged=10 then hudunderwatercolor=hudcolorbar(x10effectmenu(tstatschanged-1)) : tupdatewater=1
+  if tstatschanged=11 then hudwaterrefl=x10effectmenu(tstatschanged-1) : tupdatewater=1
+  if tstatschanged=12 then hudwaterrefr=x10effectmenu(tstatschanged-1) : tupdatewater=1
+  if tstatschanged=13 then hudwaterfresnel=x10effectmenu(tstatschanged-1) : tupdatewater=1
+  if tstatschanged=14
+   if usewaterlevelfromprevioussession#<>-1
+    rem by not changing this value, we retain from previous session
+    waterlevel#=usewaterlevelfromprevioussession#
+    rem we keep this level until 'manually' changed!
+    `usewaterlevelfromprevioussession#=-1
+   else
+    waterlevel#=abs(oldwaterlevel#+((x10effectmenu(tstatschanged-1)-50)*3))
+   endif
+   tchangethewaterclipping=2
+   tupdatewaterlevel=1
+  endif
+  if tstatschanged=15 then hudshadowstrength=x10effectmenu(tstatschanged-1) : tupdateshadow=1
+  if tstatschanged=16 then hudshadowquantity=x10effectmenu(tstatschanged-1)
+  if tstatschanged=17 then hudglassrefr=x10effectmenu(tstatschanged-1) : tupdaterefractivity=1
+  rem if just one change, leave not
+  if teffectschanged>0 then t=20 : exit
+ next t
+endif
+
+rem X10 act on volume states
+if tvolchanged=1 or lastmusicplayedinit=0
+ rem title
+ if gvolumetitlemusic=0 and gvolumetitlemusic$<>""
+  gvolumetitlemusic=loadinternalsoundcore(rootdir$+gvolumetitlemusic$,0)
+ endif
+ if gvolumetitlemusic>0
+  if volumemeter(0)=0
+   set sound volume gvolumetitlemusic,0
+  else
+   set sound volume gvolumetitlemusic,67+(volumemeter(0)/3)
+  endif
+ endif
+ rem loading
+ if gvolumeloadingmusic=0 and gvolumeloadingmusic$<>""
+  gvolumeloadingmusic=loadinternalsoundcore(rootdir$+gvolumeloadingmusic$,0)
+ endif
+ if gvolumeloadingmusic>0
+  if volumemeter(1)=0
+   set sound volume gvolumeloadingmusic,0
+  else
+   set sound volume gvolumeloadingmusic,67+(volumemeter(1)/3)
+  endif
+ endif
+ rem ingame
+ hudmusicvolume=volumemeter(2)
+ if lastmusicplayed>0
+  set sound volume lastmusicplayed,67+(hudmusicvolume/3)
+  lastmusicplayedinit=1
+ endif
+endif
+rem player volume
+if volumemeter(3)>0
+ soundvolumes(0)=80+(volumemeter(3)/5)
+else
+ soundvolumes(0)=0
+endif
+rem game volume
+if volumemeter(4)>0
+ soundvolumes(1)=80+(volumemeter(4)/5)
+else
+ soundvolumes(1)=0
+endif
+
+rem X10 Resource Meter Panel
+if testgametabtoggle=2
+ `
+ rem place statistics in resource meter values
+ resourcemeterdest#(0)=((perf(11)+0.0)/300000.0)*192.0 : rem syncs
+ resourcemeterdest#(1)=((perf(10)+0.0)/50000.0)*192.0 : rem physics
+ resourcemeterdest#(2)=((perf(17)+0.0)/75000.0)*192.0 : rem ai
+ resourcemeterdest#(3)=((perf(6)+0.0)/20000.0)*192.0 : rem entitylogic
+ memoryused#=entidmaster+segidmaster
+ resourcemeterdest#(4)=(memoryused#/100.0)*192.0 : rem memory
+ `
+ rem control resource meters
+ for rmi=0 to 4
+  resourcemeter#(rmi)=curvevalue(resourcemeterdest#(rmi),resourcemeter#(rmi),10.0)
+  if resourcemeter#(rmi)<0 then resourcemeter#(rmi)=0
+  if resourcemeter#(rmi)>192 then resourcemeter#(rmi)=192
+  resourcemeter(rmi)=resourcemeter#(rmi)
+ next rmi
+ `
+ rem draw resource meter
+ img=x10effectmenuimagestart+33 : rmposx=0 : rmposy=screen height()-335
+ paste sprite img+1,rmposx,rmposy
+ for rmi=0 to 4
+  paste sprite img+3+(rmi*4)+0,rmposx+19,rmposy+60+(rmi*53) : rem label
+  paste sprite img+3+(rmi*4)+1,rmposx+17,rmposy+80+(rmi*53) : rem start
+  t=resourcemeter(rmi) : if t<10 : t=10 : endif : size sprite img+3+(rmi*4)+2,t,10
+  paste sprite img+3+(rmi*4)+2,rmposx+22,rmposy+80+(rmi*53) : rem filler
+  paste sprite img+3+(rmi*4)+3,rmposx+22+t,rmposy+80+(rmi*53) : rem end
+  paste sprite img+2,rmposx+15,rmposy+78+(rmi*53) : rem glass
+ next rmi
+ `
+ rem FPS reading in resource meter panel
+ printvalue(rmposx+199,rmposy+19,screen fps())
+ `
+endif
+
+rem X10 240707 - Freeze spawning if physics overload
+if perf(10)>45000
+ singleplrspawnfreeze=1
+else
+ singleplrspawnfreeze=0
+endif
+
+rem Current keypress
+if gtalkytoaster=0
+ k$=inkey$()
+else
+ k$=""
+endif
+
+rem X10 if water changed
+if tupdatewaterlevel=1
+ rem when water level changes, rejig entities so they trigger floating
+ gosub _entity_rejigifwaterlevelchanges
+endif
+
+rem X10 effects are changed here (either from init or changes above)
+if hudupdateeffects=1
+ `
+ rem flag set on init
+ tupdatefog=1 : tupdatebloom=1 : tupdatewater=1
+ tupdateshadow=1 : tupdaterefractivity=1
+ hudupdateeffects=0
+ `
+ rem ensure the water colors are valid (from hudcolorbar by default)
+` hudwatercolor=hudcolorbar(x10effectmenu(8))
+` hudunderwatercolor=hudcolorbar(x10effectmenu(9))
+ ` 
+endif
+
+rem when player hurt (hud hurt), use bloom to increase effective distortion
+taddhurtbloomeffect=0
+if hudbloomfromhurtcounter>0
+ dec hudbloomfromhurtcounter,10
+ if hudbloomfromhurtcounter<0 then hudbloomfromhurtcounter=0
+ taddhurtbloomeffect=hudbloomfromhurtcounter
+ tupdatebloom=1
+endif
+
+rem trigger an update of certain elements
+if 1
+ if tupdatefog=1
+  if hudfogon=1
+   fog on
+   hudfogfar=hudfognear(waterisbelowplayer-1)+(hudfognear(waterisbelowplayer-1)*2)
+   fog distance hudfognear(waterisbelowplayer-1),hudfogfar
+   fog color hudfogred(waterisbelowplayer-1),hudfoggreen(waterisbelowplayer-1),hudfogblue(waterisbelowplayer-1) 
+  else
+   fog off
+  endif
+ endif
+ if tupdatebloom=1
+  `set effect constant float 7,"Brightness",((hudbloomstrength(waterisbelowplayer-1)+taddhurtbloomeffect)/10.0)
+  `set effect constant float 7,"blurWidth",((hudbloomwidth(waterisbelowplayer-1)+taddhurtbloomeffect)/20000.0)
+  set effect constant float 1,"BloomBrightness",((hudbloomstrength(waterisbelowplayer-1)+taddhurtbloomeffect)/10.0)
+  set effect constant float 7,"blurWidth",0.1+((hudbloomwidth(waterisbelowplayer-1)+taddhurtbloomeffect)/10.0)
+  set effect constant float 9,"blurWidth",0.1+((hudbloomwidth(waterisbelowplayer-1)+taddhurtbloomeffect)/10.0)
+ endif
+ if tupdatewater=1 or hudwaterrefrupdate=1
+  set effect constant float 11,"g_fWaterSpeed",(hudwaterspeed/25.0)
+  set effect constant float 11,"g_fWaterBump",(hudwaterdepth/1000.0)
+  set effect constant float 11,"g_fWaterRefl",(hudwaterrefl/100.0)
+  set effect constant float 11,"g_fWaterRefr",(hudwaterrefr/100.0) : hudwaterrefrupdate=0
+  r=make vector4(1)
+  set vector4 1,rgbr(hudwatercolor)/2550.0,rgbg(hudwatercolor)/2550.0,rgbb(hudwatercolor)/2550.0,1
+  set effect constant vector 11,"g_vWaterColor",1
+  r=delete vector4(1)
+  set effect constant float 11,"g_fFresnelPower",(hudwaterfresnel/2.0)
+  `
+  rem X10 - 230907 - Switch off ripple if water smooth - marble trick
+  if hudwaterdepth>0
+   waterdecalripple=waterdecalripplemaster
+  else
+   waterdecalripple=0
+  endif
+  `
+ endif
+ if tupdateshadow=1
+  set effect constant float 3,"Brightness",(hudshadowstrength/300.0)
+ endif
+ if tupdaterefractivity=1
+  if grefractionshadereffect>0
+   tvalue#=(hudglassrefr/500.0)
+   set effect constant float grefractionshadereffect,"g_fRefractionStrength",tvalue#
+  endif
+ endif
+endif
+
+endfunction
+
+function printvalue(x,y,value)
+ `
+ rem prepare sprite for text printing
+ sid=x10effectmenuimagestart+4
+ sprite sid,-10000,-10000,x10effectmenuimagestart+31
+ set sprite diffuse sid,255,255,255
+ set sprite alpha sid,255
+ size sprite sid,10,10
+ `
+ rem print value
+ text$=str$(value)
+ tactualtextwidth=10
+ tcenterx#=(len(text$)*tactualtextwidth)/2
+ for tt=1 to len(text$)
+  ttnum=-1
+  if mid$(text$,tt)="." then ttnum=10
+  if mid$(text$,tt)="\" then ttnum=11
+  if ttnum=-1 then ttnum=asc(mid$(text$,tt))-asc("0")
+  if ttnum<>-1
+   ttnumy=ttnum/4 : ttnum=ttnum-(ttnumy*4)
+   ttbitx#=(1.0/64.0)*16 : ttbity#=(1.0/64.0)*16
+   set sprite texture coord sid,0,(ttbitx#*ttnum),(ttbity#*ttnumy)
+   set sprite texture coord sid,1,(ttbitx#*ttnum)+ttbitx#,(ttbity#*ttnumy)
+   set sprite texture coord sid,2,(ttbitx#*ttnum),(ttbity#*ttnumy)+ttbity#
+   set sprite texture coord sid,3,(ttbitx#*ttnum)+ttbitx#,(ttbity#*ttnumy)+ttbity#
+   paste sprite sid,(x-tcenterx#)+((tt-1)*tactualtextwidth),y
+  endif
+ next tt
+ `
+ rem restore sprite image
+ sprite sid,-10000,-10000,sid
+ `
+endfunction
+
+function capturesession()
+
+rem X10 video footage capture
+`scforcapture=scancode() `170807 - use keystate instead so can crouch & capture same time
+if keystate(67)=1 or keystate(68)=1 : rem scforcapture=67 or scforcapture=68
+ if gvideofootagecapture=0
+  gvideofootagecapture=1
+  rem command will remove the illegal characters in the get date part of the string
+  set capture name myownrootdir$+"videobank\X10Video-"+get date$()+"_"+get time$()+".avi"
+  set capture codec gx10settingcapturecodec$
+  set capture settings gx10settingcapturecompression,gx10settingcapturefps,gx10settingcapturewidth,gx10settingcaptureheight,gx10settingcapturethreaded,gx10settingcapturewait
+  set capture mode 1
+  rem if press F10, we hide the HUDS so story clips can be made
+  `if scforcapture=68 then ghidehudgraphics=1
+  if keystate(68)=1 then ghidehudgraphics=1
+ endif
+ if gvideofootagecapture=2
+  gvideofootagecapture=3
+  set capture mode 0
+  ghidehudgraphics=0
+ endif
+else
+ if gvideofootagecapture=1 then gvideofootagecapture=2
+ if gvideofootagecapture=3 then gvideofootagecapture=0
+endif
+rem F11 snapshot
+`scforcapture=scancode() `170807 - use keystate instead so can crouch & capture same time
+`if scforcapture<>87 then gtakesnapshot=0
+`if scforcapture=87 and gtakesnapshot=0
+if keystate(87)=0 then gtakesnapshot=0
+if keystate(87)=1 and gtakesnapshot=0
+ save screenshot myownrootdir$+"X10Screen-"+get date$()+"_"+get time$()+".bmp"
+ gtakesnapshot=1
+endif
+if gvideofootagecapture=2
+ paste sprite x10effectmenuimagestart+32,0,0
+endif
+
+endfunction
+
+function getnearestposincolorbarRGB(r,g,b)
+ bestt=0
+ for t=0 to 100
+  col as dword
+  col=hudcolorbar(t)
+  cr=(col && 0xFF0000)>>16
+  cg=(col && 0x00FF00)>>8
+  cb=(col && 0x0000FF)
+  if cr=r and cg=g and cb=b
+   bestt=t
+  endif
+ next t
+endfunction bestt
+
+function getnearestposincolorbar(col as dword)
+ r=(col && 0xFF0000)>>16
+ g=(col && 0x00FF00)>>8
+ b=(col && 0x0000FF)
+ bestt=0
+ for t=0 to 100
+  col=hudcolorbar(t)
+  cr=(col && 0xFF0000)>>16
+  cg=(col && 0x00FF00)>>8
+  cb=(col && 0x0000FF)
+  if cr=r and cg=g and cb=b
+   bestt=t
+  endif
+ next t
+endfunction bestt
