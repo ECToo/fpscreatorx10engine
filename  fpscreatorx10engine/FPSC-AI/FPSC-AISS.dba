@@ -1,0 +1,1182 @@
+`
+` AI Subsystem Subroutines
+`
+
+_aiss_init:
+ `
+ rem clears the AI system of all data
+ AI Start : AI Reset : gaiactive=1
+ `
+ rem Core Settings
+ if 0
+  rem No threading
+  rem while debugging, use no threading (for debug level running of DarkAI)
+  AI SET THREAD MODE 0
+ else
+  rem N-CORE threading
+  AI SET THREAD MODE 1
+  AI SET THREAD COUNT 4
+ endif
+ `
+ rem Set common entity radius and avoidance model (22)
+ AI Set Radius 20 : AI Set Avoid Mode 5 : rem 5 - avoidance grid system
+ AI SET BLOCKING THRESHOLD 3 : rem number of corpses before grid is marked solid
+ aissentityradius=30
+ `
+ rem Universe containers (required for static entities)
+ for layer=0 to 19
+  if layer>0 then AI Add Container layer
+ next layer
+ `
+return
+
+_aiss_free:
+ `
+ rem after each level, reset AI so a new level can be loaded
+ rem it also frees the OBS file loaded for the obstacle data
+ AI Reset
+ `
+return
+
+_aiss_setup:
+ `
+ rem Create AI data for player, level, waypoints and safe zones
+ gosub _aiss_player
+ gosub _aiss_level
+ gosub _aiss_zones
+ `
+return
+
+_aiss_broadcastsound:
+ `
+ rem 200707 insufficient to give sounds different priorities based on origin
+ `if gaiactive=1
+ ` if bcsoundstrength#>0
+ `  rem create shoot sound for AI (target not person shooing for better AI)
+ `  tradius#=bcsoundstrength#*10
+ `  rem sound scares off neutral path followers
+ `  inc gaispaceoutsounds
+ `  if gaispaceoutsounds>20
+ `   AI Create Sound bcsoundx#,bcsoundz#,0,tradius#,(bcsoundy#+5)/100
+ `   gaispaceoutsounds=0
+ `  endif
+ ` endif
+ `endif 
+ `
+return
+
+_aiss_player:
+ `
+ rem Assign the player object to the AI
+ tplayerobjectnumber=physicsplayerborble
+ `if tplayerobjectnumber=1
+ ` make object cube tplayerobjectnumber,35
+ ` hide object tplayerobjectnumber
+ ` set object collision off tplayerobjectnumber
+ `endif
+ AI Add Player tplayerobjectnumber,0
+ AI Set Player Height 40 : rem from 30 231007
+ AI Set Player Radius 15
+ `
+return
+
+_aiss_level:
+ `
+ rem Take current universe level, and create AI visibility and containers
+ phyunimesh$=myownrootdir$+"levelbank\testlevel\universephy.dbo"
+ load object phyunimesh$,physicsuniverseobj
+ rem all level for 3D raycasting
+ AI Add Alternate Visibility Object physicsuniverseobj,0
+ delete object physicsuniverseobj
+ `
+ rem Perform OBSMAP generation (or quick reload)
+ rem 140907 - or a full compile where level changes with each pass
+ if tperformuniverseconstruction=1 or gcompilestandaloneexe=1
+  rem constructing fully, so generate OBS data
+  choiceoflayer=0 : choiceoflayerend=19
+  gosub _obs_generate
+  gosub _obs_processobstacles
+  rem generate obstacles for AI
+  obsgeneratenow=1 : gosub _obs_generateobstacles : obsgeneratenow=0
+  rem save data after obstacle construction
+  gosub _obs_save
+ else
+  rem use OBS data from last construction
+  gosub _obs_load
+  rem call this to complete obstacle creation (from loaded data)
+  AI Complete Obstacles
+ endif
+ `
+ remstart
+ rem new OBSMAP approach above
+ rem Take current universe level, and create AI landscape
+ phyunimesh$=myownrootdir$+"levelbank\testlevel\universephy.dbo"
+ load object phyunimesh$,physicsuniverseobj
+ for layer=0 to 19
+  if layer>0 then AI Add Container layer
+  `rem walls
+  `AI Add Obstacle From Level physicsuniverseobj,layer,1,55+(layer*100),10,10
+  `rem sandbags to hind behind
+  `AI Add Obstacle From Level physicsuniverseobj,layer,0,15+(layer*100),10,10
+  rem New raycast accounts for real 3D heights, just calculate obstacles once per layer
+  AI Add Obstacle From Level physicsuniverseobj,layer,1,15+(layer*100),10,10
+ next layer
+ rem all level for 3D raycasting
+ AI Add Alternate Visibility Object physicsuniverseobj,0
+ delete object physicsuniverseobj
+ `
+ rem Work out where holes are in floors
+ flrx1=40 : flry1=20 : flrz1=40
+ flrx2=0 : flry2=0 : flrz2=0
+ for layer=0 to 19
+  for z=0 to 39
+   for x=0 to 39
+    ptx#=50+(x*100)
+    pty#=(layer*100)
+    ptz#=50+(z*-100)
+    dst#=static raycast(ptx#,pty#+10,ptz#,ptx#,pty#-10,ptz#)
+    if dst#>0
+     if x<flrx1 then flrx1=x
+     if x>flrx2 then flrx2=x
+     if layer<flry1 then flry1=layer
+     if layer>flry2 then flry2=layer
+     if z<flrz1 then flrz1=z
+     if z>flrz2 then flrz2=z
+    endif
+   next x
+  next z
+ next layer
+ rem can detect holes and generate extra obstacles so entitites do not fall into them
+ debugobjforholes=12345
+ for layer=flry1 to flry2
+  for z=flrz1 to flrz2
+   for x=flrx1 to flrx2
+    ptx#=50+(x*100)
+    pty#=(layer*100)
+    ptz#=50+(z*-100)
+    dst#=static raycast(ptx#,pty#+10,ptz#,ptx#,pty#-10,ptz#)
+    if dst#=0
+     rem generate debug spheres where holes are discovered
+     if debugobjforholes>0 and 0
+      make object box debugobjforholes,80,10,80
+      position object debugobjforholes,ptx#,pty#,ptz#
+      set object collision off debugobjforholes
+      inc debugobjforholes
+     endif
+     rem create an obstacle to block this hole so entity can avoid it
+     ax1#=ptx#-40
+     ax2#=ptx#+40
+     az1#=ptz#-40
+     az2#=ptz#+40
+     rem it is important to create the obstacle poly in an anti-clockwise direction
+     if ax1#>ax2# then sax1#=ax1# : ax1#=ax2# : ax2#=sax1#
+     if az1#>az2# then saz1#=az1# : az1#=az2# : az2#=saz1#
+     AI Start New Obstacle
+     AI Add Obstacle Vertex ax1#,az1#
+     AI Add Obstacle Vertex ax1#,az2#
+     AI Add Obstacle Vertex ax2#,az2#
+     AI Add Obstacle Vertex ax2#,az1#
+     AI End New Obstacle layer,0,0
+    endif
+   next x
+  next z
+ next layer
+ AI Complete Obstacles
+ remend
+ `
+ rem Connect containers with a container bridge using waypoint data
+ for w=1 to waypointmax
+  if waypoint(w).count>0
+   for wpci=waypoint(w).start to waypoint(w).finish-1
+    wpy#=waypointcoord(wpci).y : clyr=(wpy#+5)/100
+    nextwpy#=waypointcoord(wpci+1).y : nextclyr=(nextwpy#+5)/100
+    if nextclyr=clyr-1 or nextclyr=clyr+1
+     rem waypoint path spans containers, a useful gate
+     wpx#=waypointcoord(wpci).x
+     wpz#=waypointcoord(wpci).z
+     nextwpx#=waypointcoord(wpci+1).x
+     nextwpz#=waypointcoord(wpci+1).z
+     result = AI connect Containers(clyr, wpx#, wpz#, nextclyr, nextwpx#, nextwpz#)
+     rem I cannot find a good spot, no matter what is troed..
+     if result<>0 and 0
+      tradius=1
+      tradangle=0
+      while result<>0 and tradius<50
+       rem it it returns 1, one of the containers did not exist
+       rem returns 2 or 3 if one of the points is within an obstacle in their respective containers
+       rem returns 0 on success
+       if result=2
+        twpx#=wpx#+(cos(tradangle)*tradius)
+        twpz#=wpz#+(sin(tradangle)*tradius)
+       else
+        twpx#=wpx#
+        twpz#=wpz#
+       endif
+       if result=3
+        tnextwpx#=nextwpx#+(cos(tradangle)*tradius)
+        tnextwpz#=nextwpz#+(sin(tradangle)*tradius)
+       else
+        tnextwpx#=nextwpx#
+        tnextwpz#=nextwpz#
+       endif
+       result = AI connect Containers(clyr, twpx#, twpz#, nextclyr, tnextwpx#, tnextwpz#)
+       inc tradangle,22
+       if tradangle>360 
+        tradangle=0 : inc tradius
+       endif
+      endwhile
+      if result<>0
+       exit prompt "AI gate inside obstacle F="+str$(wpx#)+","+str$(wpz#)+" T="+str$(nextwpx#)+","+str$(nextwpz#)+" N="+str$(tdirectionx#)+","+str$(tdirectionz#),"w:"+str$(w)+" result="+str$(result)
+       end
+      endif
+     endif
+    endif
+   next wpci
+  endif
+ next w
+ `
+ rem Create regular AI waypoints (path index matches waypoint index)
+ for w=1 to waypointmax
+  if waypoint(w).count>0
+   AI Make Path w
+   for wpci=waypoint(w).start to waypoint(w).finish
+    wpx#=waypointcoord(wpci).x
+    wpy#=waypointcoord(wpci).y : clyr=(wpy#+5)/100
+    wpz#=waypointcoord(wpci).z
+    AI Path Add Point w,wpx#,wpz#
+   next wpxi
+  endif
+ next w
+ `
+return
+
+_aiss_zones:
+ `
+ rem Record ALL safe zones stored as level markers
+ aisafemax=0
+ for e=1 to entityelementlist
+  if entityelement(e).active=1
+   if lower$(entityelement(e).eleprof.name$)="safe zone"
+    inc aisafemax
+   endif
+  endif
+ next e
+ dim aisafe(aisafemax) as aisafetype
+ aisafemax=0
+ for e=1 to entityelementlist
+  if entityelement(e).active=1
+   if lower$(entityelement(e).eleprof.name$)="safe zone"
+    if 0
+     rem debug objects
+     make object cone 200+lee,25
+     xrotate object 200+lee,90
+     yrotate object 200+lee,entityelement(e).ry
+     position object 200+lee,entityelement(e).x,entityelement(e).y+50,entityelement(e).z
+     set object collision off 200+lee
+     inc lee
+    endif
+    inc aisafemax
+    aisafe(aisafemax).x=entityelement(e).x
+    aisafe(aisafemax).y=entityelement(e).y
+    aisafe(aisafemax).z=entityelement(e).z
+    aisafe(aisafemax).ry=entityelement(e).ry
+   endif
+  endif
+ next e
+ `
+return
+
+_aiss_setwaypointpaths:
+ `
+ rem Ensure we pick this cloest waypoint to entity
+ waypointindexclosest#=99999
+ `
+ rem Look for waypoint coordinate closest to SXYZ#, takes E
+ waypointindex=0
+ for w=1 to waypointmax
+  if waypoint(w).count>0
+   for wpci=waypoint(w).start to waypoint(w).finish
+    wpx#=waypointcoord(wpci).x
+    wpy#=waypointcoord(wpci).y
+    wpz#=waypointcoord(wpci).z
+    dx#=wpx#-sx#
+    dy#=wpy#-sy#
+    dz#=wpz#-sz#
+    dd#=sqrt(abs(dx#*dx#)+abs(dy#*dy#)+abs(dz#*dz#))
+    if dd#<entityelement(e).eleprof.ex.maxrange
+     if dd#<waypointindexclosest#
+      waypointindexclosest#=dd#
+      waypointindex=w
+     endif
+    endif
+   next wpci
+  endif
+ next w
+ `
+ rem And then assign that waypoint path to the AI entity
+ if waypointindex>0
+  rem assign this waypoint to entity
+  if entityelement(e).eleprof.aiss.savedpatrolpoint>0
+   AI Entity Assign Patrol Path aiobjid,waypointindex,entityelement(e).eleprof.aiss.savedpatrolpoint
+   entityelement(e).eleprof.aiss.savedpatrolpoint=0
+  else
+   AI Entity Assign Patrol Path aiobjid,waypointindex  
+  endif
+ else
+  rem no waypoints in range, so make entity stay put
+  AI Set Entity Active aiobjid,0
+  AI Entity Hold Position aiobjid
+ endif
+ `
+return
+
+_aiss_gotosafeposition:
+ `
+ rem Find a safe position within range of E
+ aisafesel=0 : trange#=1000
+ aisafeselseconds=0
+ if AI Entity Exist(aiobjid)=1
+  currentcontainer=AI Get Entity Container(aiobjid)
+  closestdd#=trange#+1
+  for aisafei=1 to aisafemax
+   dcontainer=(aisafe(aisafei).y+5)/100
+   if dcontainer=currentcontainer
+    dx#=aisafe(aisafei).x-object position x(aiobjid)
+    dz#=aisafe(aisafei).z-object position z(aiobjid)
+    dd#=sqrt(abs(dx#*dx#)+abs(dz#*dz#))
+    if dd#<trange#
+     rem choose closest
+     if closestdd#>dd#
+      rem check if occupied slot still occupied
+      if aisafe(aisafei).occupied>0
+       toccupiercankeepspot=0
+       aiobjid2=aisafe(aisafei).occupied
+       if object exist(aiobjid2)=1
+        if AI Entity Exist(aiobjid2)=1
+         dx2#=aisafe(aisafei).x-object position x(aiobjid2)
+         dz2#=aisafe(aisafei).z-object position z(aiobjid2)
+         dd2#=sqrt(abs(dx#*dx#)+abs(dz#*dz#))
+         if dd2#<100
+          rem occupier gets to keep slot
+          toccupiercankeepspot=1
+         endif
+        endif
+       endif
+       if toccupiercankeepspot=0
+        rem free spot for re-use, it is now vacant
+        aisafe(aisafei).occupied=0
+       endif
+      endif
+      rem and only if no-one on the spot
+      if aisafe(aisafei).occupied=0
+       rem occupy spot with this AI entity
+       closestdd#=dd#
+       aisafesel=aisafei
+      else
+       rem if no spots left, chose closest even if occupied
+       aisafeselseconds=aisafei
+      endif
+     endif
+    endif
+   endif
+  next aisafei
+ endif
+ rem For now, if no slot available, switch to aggressive!
+ if aisafesel>0
+  rem register interest in this free spot
+  if aisafe(aisafesel).occupied=0
+   aisafe(aisafesel).occupied=aiobjid
+  endif
+  rem move to new idle position
+  AI Set Entity Idle Position aiobjid,aisafe(aisafesel).x,aisafe(aisafesel).z,(aisafe(aisafesel).y+5)/100
+  AI Entity Go To Position aiobjid,aisafe(aisafesel).x,aisafe(aisafesel).z,(aisafe(aisafesel).y+5)/100
+  AI Set Entity Control aiobjid,0
+  if entityelement(e).eleprof.ex.alignment=0
+   rem neutral holds position
+   AI Entity Hold Position aiobjid
+  else
+   rem enemy and ally alert action
+   entityelement(e).eleprof.aiss.actionmode=102 : entityelement(e).eleprof.aiss.actioncount=0
+  endif
+ else
+  rem no safe opsition to head for
+ `if aisafesel=0 then aisafesel=aisafeselseconds
+  if entityelement(e).eleprof.ex.alignment=0
+   rem switch to independent stationary position
+   AI Set Entity Active aiobjid,0
+   AI Entity Hold Position aiobjid
+  else
+   rem switch to independent aggressive if enemy or ally
+   AI Set Entity Stance aiobjid,1
+   entityelement(e).eleprof.aiss.actionmode=1
+  endif
+ endif
+ `
+return
+
+_aiss_createaientity:
+ `
+ rem If already existing, recreate by deleting old
+ if AI Entity Exist(aiobjid)=1
+  AI Kill Entity aiobjid
+ endif
+ `
+ rem Create the Ai entity for aiobjid and e
+ yrotate object aiobjid,180
+ select entityelement(e).eleprof.ex.alignment
+  case 0 : AI Add Neutral aiobjid,0 : endcase
+  case 1 : AI Add Enemy aiobjid,0 : endcase
+  case 2 : AI Add Friendly aiobjid,0 : endcase
+ endselect
+ AI Set Entity Control aiobjid,0
+ AI Set Entity Position aiobjid,object position x(aiobjid),object position y(aiobjid),object position z(aiobjid)
+ AI Set Entity Idle Position aiobjid,object position x(aiobjid),object position z(aiobjid),(object position y(aiobjid)+5)/100
+ AI Entity Look At Position aiobjid,newxvalue(object position x(aiobjid),entityelement(e).ry,50.0),newzvalue(object position z(aiobjid),entityelement(e).ry,50.0)
+ AI Set Entity View Arc aiobjid,entityelement(e).eleprof.coneangle,entityelement(e).eleprof.coneangle
+ AI Set Entity Height aiobjid,entityelement(e).eleprof.coneheight
+ AI Set Entity Turn Speed aiobjid,entityelement(e).eleprof.speed*2
+ AI Set Entity Speed aiobjid,entityelement(e).eleprof.speed
+ AI Set Entity Angle Y aiobjid,entityelement(e).ry
+ rem X10 entities with no weapon must have point-blank distance (for melee attack)
+ if entityelement(e).eleprof.hasweapon=0
+  rem this is not canfire range, just the distance at which the entity distances itself
+  AI Set Entity Attack Distance aiobjid,20
+  AI Set Entity Defend Distance aiobjid,20
+  AI SET ENTITY MELEE MODE aiobjid,1
+  AI Set Entity Avoid Distance aiobjid,0
+ else
+  AI Set Entity Attack Distance aiobjid,entityelement(e).eleprof.ex.attackrange
+  AI Set Entity Defend Distance aiobjid,entityelement(e).eleprof.ex.attackrange
+  AI SET ENTITY MELEE MODE aiobjid,0
+  rem if weapon is flak, we need avoid distance
+  tgunid=entityelement(e).eleprof.hasweapon
+  if gun(tgunid).settings.flakindex<>0
+   AI Set Entity Avoid Distance aiobjid,entityelement(e).eleprof.ex.attackrange
+  else
+   AI Set Entity Avoid Distance aiobjid,0
+  endif
+ endif
+ AI Set Entity View Range aiobjid,entityelement(e).eleprof.ex.viewrange
+ AI Set Entity Hearing Range aiobjid,entityelement(e).eleprof.ex.maxrange
+ rem X10 neutrals cannot hear a bean, they always use waypoints and visual only 
+ if entityelement(e).eleprof.ex.alignment=0
+  rem neutrals cannot hear and do not bother with the avoidance grid
+  AI Set Entity Can Hear aiobjid,0
+  AI SET ENTITY AVOID MODE aiobjid,1
+ else
+  AI Set Entity Can Hear aiobjid,entityelement(e).eleprof.ex.canhear
+ endif
+ AI Set Entity Can Duck aiobjid,entityelement(e).eleprof.ex.canduck
+ AI Set Entity Can Strafe aiobjid,entityelement(e).eleprof.ex.canstrafe 
+ AI Set Entity Radius aiobjid,aissentityradius
+ AI Set Entity Active aiobjid,1
+ AI Set Entity Stance aiobjid,0
+ if entityelement(e).eleprof.ex.alignment=1
+  rem enemy
+ else
+  if entityelement(e).eleprof.ex.alignment=2
+   rem friend must hold position by default
+   if entityelement(e).eleprof.ex.initmode=0
+    rem inactive while ally waits for player
+    AI Set Entity Active aiobjid,0
+    entityelement(e).eleprof.ex.initmode=6
+   endif
+  else
+   rem neutral
+   AI Set Entity Patrol Time aiobjid,-0.5
+   if entityelement(e).eleprof.ex.initmode=0
+    rem default behaviour is follow waypoint
+    entityelement(e).eleprof.ex.initmode=4
+   endif
+  endif
+ endif
+ tnewcontainer=(object position y(aiobjid)+5)/100
+ if tnewcontainer<0 then tnewcontainer=0
+ if tnewcontainer>19 then tnewcontainer=19
+ AI Set Entity Container aiobjid,tnewcontainer
+ AI Set Entity Control aiobjid,1
+ `
+return
+
+_aiss_destroyaientity:
+ `
+ rem kill the entity in the AI using E
+ if gaiactive=1
+  aiobjid=entityobjectoffset+e
+  if AI Entity Exist(aiobjid)=1
+   AI Kill Entity aiobjid
+  endif
+ endif
+ `
+return
+
+_aiss_prepareentities:
+ `
+ rem go through entities and setup AI for all dynamic characters
+ for e=1 to entityelementlist
+  if entityelement(e).bankindex>0
+   `
+   rem V109 - 040708 - only DarkAI.FPI should use DarkAI
+   tshoulduseAI=0
+   if lower$(right$(entityelement(e).eleprof.aimain$,10))="darkai.fpi" then tshoulduseAI=1
+   `
+   rem X10 - V109 - 170309 - only spawn children, not invisible spawn leader parent!
+   rem and only those entities that spawn at the very start (not triggered)
+   rem V110 - 150110 - allow both ATSTART and LATERTRIGGERED to be created (needed for saveload prep of entities)
+   `if tshoulduseAI=1
+   `if tshoulduseAI=1 and entityelement(e).spawn.leader=0 and entityelement(e).spawn.atstart=1
+   if tshoulduseAI=1 and entityelement(e).spawn.leader=0
+    if entityelement(e).staticflag=0 and entityprofile(entityelement(e).bankindex).ischaracter=1
+     aiobjid=entityobjectoffset+e
+     if object exist(aiobjid)=1
+      gosub _aiss_createaientity
+      if prepareentitiesmode=1
+       rem X10 - 131007 - means been called from save position, do not fire init action!
+      else
+       entityelement(e).eleprof.aiss.actionmode=entityelement(e).eleprof.ex.initmode
+      endif
+     endif
+    endif
+   endif
+  endif
+ next e
+ `
+return
+
+_aiss_fpi_getconditionvalue:
+ `
+ rem Handle action logic of AI entity (aiobjidvalue in and out)
+ rem 0 : ISDARKAISEEING
+ rem 1 : ISDARKAIHURT
+ rem 2 : ISDARKAIFIRING
+ aiobjid=entityobjectoffset+e
+ if AI Entity Exist(aiobjid)=1
+  select aiobjidvalue
+   case 0 :
+    targetx# = AI Get Entity Target X(aiobjid)
+    targety# = object position y(aiobjid)+30
+    targetz# = AI Get Entity Target Z(aiobjid)
+    if AI Get Entity Can See(aiobjid,targetx#,targety#,targetz#,1)<>0
+     aiobjidvalue=1
+    else
+     aiobjidvalue=0
+    endif
+   endcase
+   case 1 :
+    if entityelement(e).health<entityelement(e).eleprof.ex.hurtvalue
+     aiobjidvalue=1
+    else
+     aiobjidvalue=0
+    endif
+   endcase
+   case 2 :
+    if AI Get Entity Can Fire(aiobjid)=1
+     aiobjidvalue=1
+    else
+     aiobjidvalue=0
+    endif
+   endcase
+  endselect
+ else
+  aiobjidvalue=0
+ endif
+ `
+return
+
+_aiss_fpi_doaction:
+ `
+ rem aiobjidaction and aiobjidvalue
+ rem 0 : DODARKAI (0-init, 1-see, 2-trig, 3-hurt, 4-pauseforgunreload, 5-resumefrompause)
+ rem 1 : DODARKAIANIM
+ aiobjid=entityobjectoffset+e
+ if 1 : rem some entities start off inactive AI Entity Exist(aiobjid)=1
+  select aiobjidaction
+   case 0 :
+    if entityelement(e).eleprof.aiss.actionmode=51
+     rem set action of AI entity when paused (resume only)
+     if aiobjidvalue=5
+      entityelement(e).eleprof.aiss.actionmode=52
+      entityelement(e).eleprof.aiss.stateresting=4 : rem ensure old anim resumes too
+     endif
+    else
+     rem set action of AI entity (only 0(noaction) or 6(waiting for player) can be overridden with new action)
+     if entityelement(e).eleprof.aiss.actionmode=0 or entityelement(e).eleprof.aiss.actionmode=6
+      if aiobjidvalue=0
+       entityelement(e).eleprof.aiss.actionmode=entityelement(e).eleprof.ex.initmode
+       entityelement(e).eleprof.ex.initmode=0
+      endif
+      if aiobjidvalue=1
+       entityelement(e).eleprof.aiss.actionmode=entityelement(e).eleprof.ex.seemode
+       entityelement(e).eleprof.ex.seemode=0
+      endif
+      if aiobjidvalue=2
+       entityelement(e).eleprof.aiss.actionmode=entityelement(e).eleprof.ex.trigmode
+       entityelement(e).eleprof.ex.trigmode=0
+       AI Set Entity Active aiobjid,1
+      endif
+      if aiobjidvalue=3
+       entityelement(e).eleprof.aiss.actionmode=entityelement(e).eleprof.ex.hurtmode
+       entityelement(e).eleprof.ex.hurtmode=0
+       AI Set Entity Active aiobjid,1
+      endif
+      if aiobjidvalue=4
+       entityelement(e).eleprof.aiss.actionmode=51       
+      endif
+     endif
+    endif
+   endcase
+   case 1 :
+    rem handle animation of entity from state of AI entity
+    rem Gather values from AI, and only initiate new animation if values
+    rem have remained unchanged for X frames (reduces glitches caused by rapid state toggles)
+    if AI Entity Exist(aiobjid)=1
+     tproceedtoanimatecharacter=0
+     rem create bitfields based on states
+     rem TB1 (0-7) TB2 (8) TB3 (16)
+     `120807 - it is the visual angle we must use to modify the animation set
+     `tb1=(wrapvalue(atanfull(AI Get Entity Move X(aiobjid),AI Get Entity Move Z(aiobjid)))/45.0)
+     tb1=wrapvalue(object angle y(aiobjid))/45.0
+     tb2=AI Get Entity Is Ducking(aiobjid)<<3
+     tb3=AI Get Entity Is Moving(aiobjid)<<4
+     tnewstate=tb1+tb2+tb3    
+     if tnewstate<>entityelement(e).eleprof.aiss.lastanimstate
+      rem states have remained this way long enough, animate character based on states
+      entityelement(e).eleprof.aiss.lastanimstate=tnewstate
+      entityelement(e).eleprof.aiss.stateresting=0
+     else
+      rem if this anim state remains for more than X calls, go with new animation!
+      if entityelement(e).eleprof.aiss.stateresting<2
+       entityelement(e).eleprof.aiss.stateresting=entityelement(e).eleprof.aiss.stateresting+1
+       if entityelement(e).eleprof.aiss.stateresting=2
+        rem after X cycles in same state, trigger animation change
+        tproceedtoanimatecharacter=1
+       endif
+      endif
+     endif
+     rem MOVEMENT angle (not in DarkAI)
+     tmovementdst#=abs(AI Get Entity Move X(aiobjid))+abs(AI Get Entity Move Z(aiobjid))
+     if tmovementdst#<0.01
+      moveangle#=AI Get Entity Angle Y(aiobjid)
+     else
+      moveangle#=wrapvalue(atanfull(AI Get Entity Move X(aiobjid),AI Get Entity Move Z(aiobjid)))
+     endif
+     rem ANIMATE based on AI state
+     if tproceedtoanimatecharacter=1
+      tmpframe1=entityelement(e).animdo
+      tmpframedirection=0
+      if AI Get Entity Is Ducking(aiobjid)=1
+       if AI Get Entity Is Moving(aiobjid)=1
+        rem crawl
+        tmpframe2=32
+       else
+        rem crouch
+        tmpframe2=31
+       endif
+      else
+       if AI Get Entity Is Moving(aiobjid)=1
+        viewangle#=wrapvalue(AI Get Entity Angle Y(aiobjid))
+        diffangle#=moveangle#-viewangle# : aiconda#=diffangle#
+        if aiconda#>180 then aiconda#=360-aiconda#
+        if aiconda#<-180 then aiconda#=aiconda#+360
+        if aiconda#<-120.0 or aiconda#>120.0
+         rem backwards
+         tmpframe2=2
+         tmpframedirection=1
+        else
+         rem strafe
+         if aiconda#>80.0 and tmovementdst#>1.0
+          tmpframe2=4
+         else
+          if aiconda#<-80.0 and tmovementdst#>1.0
+           tmpframe2=3
+          else
+           if 0 : rem AI Get Entity Is Running(aiobjid)=1
+            rem forward run
+            tmpframe2=5
+           else
+            rem forward walk
+            tmpframe2=2
+           endif
+          endif
+         endif
+        endif
+       else
+        rem idle
+        tmpframe2=1
+       endif
+      endif
+      if tmpframe1<>tmpframe2 or entityelement(e).animdir<>tmpframedirection
+       entityelement(e).animset=1+tmpframe2
+       entityelement(e).destanimframe=0
+       entityelement(e).animframe=0
+       entityelement(e).animtime=0
+       entityelement(e).animdir=tmpframedirection
+      endif
+     endif
+     `
+     rem X10 240907 - monitor - if MOVING and using an idle anim, change it immediately!!
+     if AI Get Entity Is Moving(aiobjid)=1
+      rem moving and entity anim is IDLE or RELOAD (081107 - or MELEE)
+      if entityelement(e).animset=2 or entityelement(e).animdo=1 or entityelement(e).animdo=6 or entityelement(e).animdo=7 or entityelement(e).animdo=8
+`      if entityelement(e).animset=2 or entityelement(e).animdo=1
+       rem to prevent sliding characters
+       tmpframe2=2 : rem forward walk placeholder
+       entityelement(e).animset=1+tmpframe2
+       entityelement(e).destanimframe=0
+       entityelement(e).animframe=0
+       entityelement(e).animtime=0
+      endif
+     endif
+     `
+     rem Also place entity based on AI entity position
+     entityelement(e).x = AI Get Entity X(aiobjid)
+     entityelement(e).z = AI Get Entity Z(aiobjid)
+     `
+     rem angle of entity based on AI
+     entityelement(e).mover.da = curveangle(AI Get Entity Angle Y(aiobjid),entityelement(e).mover.da,3.0)
+     `
+     rem find floor for this entity (does not use physics - too jittery)
+     if AI GET ENTITY CHANGING CONTAINERS(aiobjid)<>0
+      tmvszy#=(object size y(aiobjid)/2)
+      tfloorstarty#=entityelement(e).y+20
+      `tfloory#=static raycast(entityelement(e).x,tfloorstarty#,entityelement(e).z,entityelement(e).x,tfloorstarty#-30,entityelement(e).z)
+      `if tfloory#>0 ` entityelement(e).y = tfloorstarty#-tfloory#
+      tfloory#=AI RAY CAST(entityelement(e).x,tfloorstarty#,entityelement(e).z,entityelement(e).x,tfloorstarty#-30,entityelement(e).z)
+      if tfloory#<>-1
+       rem floor contours of floor instantly (step size above)
+       entityelement(e).y = tfloorstarty#-(tfloory#*30.0)
+      else
+       rem artificial gravity to decent ramps and staircases
+       toldcontainer=(entityelement(e).y+5)/100
+       entityelement(e).y = entityelement(e).y - 8
+       rem if fall creates a container transition, do it
+       tnewcontainer=(entityelement(e).y+5)/100
+       if tnewcontainer<>toldcontainer
+        rem entity has dropped into new container
+        if tnewcontainer<0 then tnewcontainer=0
+        if tnewcontainer>19 then tnewcontainer=19    
+        AI Set Entity Container aiobjid,tnewcontainer
+       endif
+      endif
+      AI Set Entity Y Position aiobjid,entityelement(e).y
+     endif
+     `
+    endif
+   endcase
+  endselect
+  `
+ endif
+ `
+return
+
+_aiss_gettargetforshooting:
+ `
+ rem get targetID from entity about to fire, takes E
+ targetID=0
+ if object exist(obj)=1
+  aiobjid=obj
+  if AI Entity Exist(aiobjid)=1
+   targetID = AI Get Entity Target ID(aiobjid,1)
+  endif
+ endif
+ if targetID>65535
+  rem a bug causes above command to return a HUGE value
+  targetID=0
+ endif
+ `
+return
+
+_aiss_handleactions:
+ `
+ rem Handle action logic of AI entity
+ if object exist(aiobjid)=1
+  if entityelement(e).eleprof.aiss.actionmode>0
+   `
+   rem INSTANT ATTACK
+   if entityelement(e).eleprof.aiss.actionmode=1
+    entityelement(e).eleprof.aiss.lastactionmode=entityelement(e).eleprof.aiss.actionmode
+    if AI Get Entity Following(aiobjid)=0
+     rem X10 231007 - only if NOT following at the time!
+     AI Set Entity Stance aiobjid,1
+    endif
+    entityelement(e).eleprof.aiss.actionmode=0
+   endif
+   `
+   rem 2:FIND COVER and 102:WHEN REACH COVER, DEFENSIVE
+   if entityelement(e).eleprof.aiss.actionmode=2
+    entityelement(e).eleprof.aiss.lastactionmode=entityelement(e).eleprof.aiss.actionmode
+    gosub _aiss_gotosafeposition
+   endif
+   if entityelement(e).eleprof.aiss.actionmode=102
+    entityelement(e).eleprof.aiss.lastactionmode=entityelement(e).eleprof.aiss.actionmode
+    targetx#=AI Get Entity Destination X(aiobjid)
+    targetz#=AI Get Entity Destination Z(aiobjid)
+    dx#=targetx#-object position x(aiobjid)
+    dz#=targetz#-object position z(aiobjid)
+    dst#=sqrt(abs(dx#*dx#)+abs(dz#*dz#))
+    if dst#<30
+     rem STAND AND SHOOT
+     AI Set Entity Control aiobjid,1
+     AI Set Entity Stance aiobjid,2
+     entityelement(e).eleprof.aiss.actionmode=0
+    else
+     if dst#<80
+      entityelement(e).eleprof.aiss.actioncount=entityelement(e).eleprof.aiss.actioncount+1
+     endif
+     if entityelement(e).eleprof.aiss.actioncount>100
+      rem FIND A NEW SAFE SPOT
+      gosub _aiss_gotosafeposition
+     endif
+    endif
+   endif
+   `
+   rem 3: PATROL AREA
+   if entityelement(e).eleprof.aiss.actionmode=3
+    entityelement(e).eleprof.aiss.lastactionmode=entityelement(e).eleprof.aiss.actionmode
+    rem V110 - 140110 - never had a patrol area which should be random positions   
+    remstart
+    if AI Get Entity Following(aiobjid)=0
+     rem X10 231007 - only if NOT following at the time!
+     AI Set Entity Stance aiobjid,0
+    endif
+    entityelement(e).eleprof.aiss.actionmode=0
+    remend
+    tpatrolareacode=1
+    if tpatrolareacode=1
+     if entityelement(e).eleprof.ex.alignment=0
+      rem neutral characters do not use PATROL AREA
+      AI Set Entity Stance aiobjid,0
+      entityelement(e).eleprof.aiss.actionmode=0
+     else
+      rem not for neutral characters, only enemies and friends
+      if rnd(250)=1
+       rem Random look position
+       tdir=rnd(360)
+       tnewroamposx#=newxvalue(entityelement(e).eleprof.startx,tdir,entityelement(e).eleprof.ex.maxrange)
+       tnewroamposy#=object position y(aiobjid)+30
+       tnewroamposz#=newzvalue(entityelement(e).eleprof.startz,tdir,entityelement(e).eleprof.ex.maxrange)
+       AI Entity Look At Position aiobjid,tnewroamposx#,tnewroamposz#
+       rem Random new idle position
+       tdir=rnd(360)
+       tnewroamposx#=newxvalue(entityelement(e).eleprof.startx,tdir,entityelement(e).eleprof.ex.maxrange)
+       tnewroamposz#=newzvalue(entityelement(e).eleprof.startz,tdir,entityelement(e).eleprof.ex.maxrange)
+       AI Set Entity Idle Position aiobjid,tnewroamposx#,tnewroamposz#,tnewroamposy#
+       AI Entity Go To Position aiobjid,tnewroamposx#,tnewroamposz#,tnewroamposy#
+       AI Set Entity Control aiobjid,0
+       AI Set Entity Stance aiobjid,0
+      endif    
+      rem V110 - 140110 - if enemy 'sees' target, switch off patrol area
+      if entityelement(e).eleprof.ex.alignment=1
+       if AI Get Entity Can Fire(aiobjid)=1
+        AI Set Entity Control aiobjid,1
+        AI Set Entity Stance aiobjid,0
+        entityelement(e).eleprof.aiss.actionmode=0
+       endif
+      endif
+     endif
+    endif
+   endif
+   `
+   rem 4: FOLLOW WAYPOINT
+   if entityelement(e).eleprof.aiss.actionmode=4
+    entityelement(e).eleprof.aiss.lastactionmode=entityelement(e).eleprof.aiss.actionmode
+    sx#=object position x(aiobjid)
+    sy#=object position y(aiobjid)
+    sz#=object position z(aiobjid)
+    gosub _aiss_setwaypointpaths
+    entityelement(e).eleprof.aiss.actionmode=0
+   endif
+   `
+   rem res
+   if entityelement(e).eleprof.aiss.actionmode=5
+    entityelement(e).eleprof.aiss.lastactionmode=entityelement(e).eleprof.aiss.actionmode
+    entityelement(e).eleprof.aiss.actionmode=0
+   endif
+   `
+   rem FOLLOW PLAYER or WAIT UNTIL PLAYER IN RANGE, THEN FOLLOW
+   if entityelement(e).eleprof.aiss.actionmode=6
+    entityelement(e).eleprof.aiss.lastactionmode=entityelement(e).eleprof.aiss.actionmode
+    targetx#=camera position x(playercam)
+    targety#=camera position y(playercam)
+    targetz#=camera position z(playercam)
+    dx#=targetx#-object position x(aiobjid)
+    dy#=targety#-object position y(aiobjid)
+    dz#=targetz#-object position z(aiobjid)
+    dst#=sqrt(abs(dx#*dx#)+abs(dy#*dy#)+abs(dz#*dz#))
+    if dst#<entityelement(e).eleprof.ex.attackrange
+     rem CLOSE ENOUGH TO ACTIVATE AND JOIN PLAYER
+     AI Set Entity Active aiobjid,1
+     entityelement(e).eleprof.aiss.actionmode=106
+    endif
+   endif
+   if entityelement(e).eleprof.aiss.actionmode=106
+    entityelement(e).eleprof.aiss.lastactionmode=entityelement(e).eleprof.aiss.actionmode
+    AI Entity Follow Player aiobjid,150
+    entityelement(e).eleprof.aiss.actionmode=0
+   endif
+   `
+   rem STAND GROUND (reached edge of maxrange) 
+   if entityelement(e).eleprof.aiss.actionmode=7
+    entityelement(e).eleprof.aiss.lastactionmode=entityelement(e).eleprof.aiss.actionmode
+    targetx# = AI Get Entity Target X(aiobjid)
+    targety# = object position y(aiobjid)+30
+    targetz# = AI Get Entity Target Z(aiobjid)
+    tdx#=targetx#-entityelement(e).eleprof.startx
+    tdy#=targety#-entityelement(e).eleprof.starty
+    tdz#=targetz#-entityelement(e).eleprof.startz
+    tdist#=sqrt(abs(tdx#*tdx#)+abs(tdy#*tdy#)+abs(tdz#*tdz#))
+    if tdist#>entityelement(e).eleprof.ex.maxrange
+     rem 210807 - only if target is outside of characters own maxrange
+     if AI Get Entity Following(aiobjid)=0
+      rem X10 231007 - only if NOT following at the time!
+      AI Set Entity Stance aiobjid,2
+     endif
+    else
+     rem otherwise character can chase into their maxrange even 
+     rem if the action has been triggered from being outside maxrange
+     tdx#=entityelement(e).x-entityelement(e).eleprof.startx
+     tdy#=entityelement(e).y-entityelement(e).eleprof.starty
+     tdz#=entityelement(e).z-entityelement(e).eleprof.startz
+     tdist#=sqrt(abs(tdx#*tdx#)+abs(tdy#*tdy#)+abs(tdz#*tdz#))
+     if tdist#>=entityelement(e).eleprof.ex.maxrange
+      rem and should go aggresive if outside own range, and target inside range!
+      if AI Get Entity Following(aiobjid)=0
+       rem X10 231007 - only if NOT following at the time!
+       AI Set Entity Stance aiobjid,1
+      endif
+     endif
+    endif
+    entityelement(e).eleprof.aiss.actionmode=0
+   endif
+   `
+   rem PAUSE ALL AI (for gun reload)
+   if entityelement(e).eleprof.aiss.actionmode=51
+    entityelement(e).eleprof.aiss.lastactionmode=entityelement(e).eleprof.aiss.actionmode
+    AI Set Entity Active aiobjid,0
+   endif
+   `
+   rem RESUME FROM PAUSE (for gun reload)
+   if entityelement(e).eleprof.aiss.actionmode=52
+    entityelement(e).eleprof.aiss.lastactionmode=entityelement(e).eleprof.aiss.actionmode
+    AI Set Entity Active aiobjid,1
+    entityelement(e).eleprof.aiss.actionmode=0
+   endif
+   `
+   `
+  endif
+ endif
+ `
+return
+
+_aiss_debugview:
+ `
+ `if mouseclick()=3 or createdebuginfo=1
+ if 0 : rem X10 - 270907 - discontinued for final phase betas
+  while mouseclick()=3 : endwhile
+  createdebuginfo=0
+  triggerinzoneoneoff=11
+  if debugview=0
+   rem Debug On
+   `AI Set Console Output On physicsuniverseobj
+   for layer=0 to 19
+    AI Debug Show Obstacle Bounds layer,6+(layer*100)
+    `AI Debug Show Waypoints layer,15+(layer*100)
+   next layer
+   if 0
+    layer=camera position y(playercam)/100.0
+    if layer<0 then layer=0
+    if layer>19 then layer=19
+    AI DEBUG SHOW AVOIDANCE GRID layer,15+(layer*100)
+   endif
+   `AI Debug Show Paths 115
+   debugview=1
+  else
+   rem Debug Off
+   `set static objects wireframe off
+   for layer=0 to 19
+    AI Debug Hide Obstacle Bounds layer
+    `AI Debug Hide Waypoints layer
+    AI DEBUG HIDE AVOIDANCE GRID layer
+   next layer
+   `AI Debug Hide Paths
+   `AI Debug Hide Sounds
+   `AI Debug Hide View Arcs
+   debugview=0
+  endif
+ endif
+ `if debugview=1
+ ` AI Debug Show Sounds camera position y(playercam)-50
+ `endif
+ `
+return
+
+_aiss_playercontrol:
+ `
+ rem team commands (V110 - 140110 - use scancode for case insensitive)
+ if scancode()=33
+ `if inkey$()="f"
+  for e=1 to entityelementlist
+   if entityelement(e).bankindex>0 and entityelement(e).staticflag=0
+    aiobjid=entityobjectoffset+e
+    if object exist(aiobjid)=1
+     if entityelement(e).eleprof.ex.alignment=2
+      if AI Entity Exist(aiobjid)=1
+       rem V110 - 140110 - need to break MANUAL APTROL AREA code
+       if entityelement(e).eleprof.aiss.actionmode=3
+        AI Set Entity Control aiobjid,1
+        entityelement(e).eleprof.aiss.actionmode=0
+       endif
+       if entityelement(e).eleprof.aiss.thinkingprompt<>1
+        entityelement(e).eleprof.aiss.thinkingprompt=1
+        entityelement(e).eleprof.aiss.thinkingcount=50
+        AI Set Entity Stance aiobjid,1
+        AI Entity Follow Player aiobjid,150
+        `
+        rem X10 - 231007 - when set allies to follow, wipe out IFSEE condition
+        rem as this wills et themto aggressive and they will NOT follow plr
+        entityelement(e).eleprof.ex.seemode=0
+        entityelement(e).eleprof.ex.trigmode=0
+        `
+       endif
+      endif
+     endif
+    endif
+   endif
+  next e
+  AI Team Follow Player 150.0 : rem 150807 - no need for team separate, follow and hold change the team state!
+ endif
+ if scancode()=34
+ `if inkey$()="g"
+  for e=1 to entityelementlist
+   if entityelement(e).bankindex>0 and entityelement(e).staticflag=0
+    aiobjid=entityobjectoffset+e
+    if object exist(aiobjid)=1
+     if entityelement(e).eleprof.ex.alignment=2
+      if AI Entity Exist(aiobjid)=1
+       rem V110 - 140110 - need to break MANUAL APTROL AREA code
+       if entityelement(e).eleprof.aiss.actionmode=3
+        AI Set Entity Control aiobjid,1
+        entityelement(e).eleprof.aiss.actionmode=0
+       endif
+       if entityelement(e).eleprof.aiss.thinkingprompt<>2
+        entityelement(e).eleprof.aiss.thinkingprompt=2
+        entityelement(e).eleprof.aiss.thinkingcount=50
+        AI Set Entity Stance aiobjid,1
+       endif
+      endif
+     endif
+    endif
+   endif
+  next e
+ endif
+ if scancode()=35
+ `if inkey$()="h"
+  for e=1 to entityelementlist
+   if entityelement(e).bankindex>0 and entityelement(e).staticflag=0
+    aiobjid=entityobjectoffset+e
+    if object exist(aiobjid)=1
+     if entityelement(e).eleprof.ex.alignment=2
+      if AI Entity Exist(aiobjid)=1
+       rem V110 - 140110 - need to break MANUAL APTROL AREA code
+       if entityelement(e).eleprof.aiss.actionmode=3
+        AI Set Entity Control aiobjid,1
+        entityelement(e).eleprof.aiss.actionmode=0
+       endif
+       if entityelement(e).eleprof.aiss.thinkingprompt<>3
+        entityelement(e).eleprof.aiss.thinkingprompt=3
+        entityelement(e).eleprof.aiss.thinkingcount=50
+        AI ENTITY HOLD POSITION aiobjid
+        AI Set Entity Idle Position aiobjid,object position x(aiobjid),object position z(aiobjid),(object position y(aiobjid)+5)/100
+        AI Set Entity Stance aiobjid,2
+       endif
+      endif
+     endif
+    endif
+   endif
+  next e
+ endif
+ `
+ rem player ducking and position
+ tcamx#=camera position x(playercam)
+ if crouchmode=1
+  tcamy#=camera position y(playercam)-20
+ else
+  tcamy#=camera position y(playercam)-40
+ endif
+ tcamz#=camera position z(playercam)
+ `
+ rem 250907 - Location of player based on if alive or not
+ if player(1).health>0
+  rem player in world - enemies bate!
+  AI Set Player Position tcamx#,tcamy#,tcamz#
+  AI Set Player Ducking crouchmode
+ else
+  rem player is heaven - out of reach of enemies
+  gosub _aiss_playerisheaven
+ endif
+ `
+return
+
+_aiss_playerisheaven:
+ `
+ rem player is heaven - out of reach of enemies
+ AI Set Player Position 0,150000,0
+ AI Set Player Ducking 0
+ `
+return
+
+_aiss_control:
+ `
+ rem Player container location
+ playercontainer=(camera position y(playercam)-30)/100
+ if playercontainer<0 then playercontainer=0
+ if playercontainer>19 then playercontainer=19
+ AI Set Player Container playercontainer
+
+ rem go through all ai entities
+ for e=1 to entityelementlist
+  rem if exists and activated
+  aiobjid=entityobjectoffset+e
+  if AI Entity Exist(aiobjid)=1 and entityelement(e).health>0
+   `
+   rem Built-in logic for AI
+   rem X10 - 210807 - when control anim, also check overall distance from
+   rem origin, and if greater than maxrange of entity, then go back to the start position 
+   if entityelement(e).eleprof.ex.alignment=0 or entityelement(e).eleprof.ex.alignment=1
+    rem (only for enemies and neutrals)
+    if entityelement(e).eleprof.aiss.lastactionmode<>4
+     rem if following a waypoint as last action, don't interupt it
+     tdx#=entityelement(e).x-entityelement(e).eleprof.startx
+     tdy#=entityelement(e).y-entityelement(e).eleprof.starty
+     tdz#=entityelement(e).z-entityelement(e).eleprof.startz
+     tdist#=sqrt(abs(tdx#*tdx#)+abs(tdy#*tdy#)+abs(tdz#*tdz#))
+     if tdist#>entityelement(e).eleprof.ex.maxrange
+      if entityelement(e).eleprof.aiss.actionmode=0
+       entityelement(e).eleprof.aiss.actionmode=7
+      endif
+     endif
+    endif
+   endif
+   `
+   rem Call AI action logic
+   gosub _aiss_handleactions
+   `
+   rem Debug string feedback
+   if object in screen(aiobjid)=1
+    t$=str$(aiobjid)+"("+str$(entityelement(e).eleprof.aiss.actionmode)+") "+AI Get Entity State$(aiobjid)+" "+str$(AI Get Entity Target ID(aiobjid,1))+" H:"+str$(entityelement(e).health)
+    rem V109 - remove debug here so we can view old script behaviour
+`    entitydebug$(e)=t$
+   endif
+   `
+   rem redundant?
+   if entityelement(e).eleprof.aiss.shootTimer>0
+    entityelement(e).eleprof.aiss.shootTimer=entityelement(e).eleprof.aiss.shootTimer-1
+   endif
+   `
+  endif
+ next e
+ `
+ rem Debug view (optional)
+ gosub _aiss_debugview
+ `
+return

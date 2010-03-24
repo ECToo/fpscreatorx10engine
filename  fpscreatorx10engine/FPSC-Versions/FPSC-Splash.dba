@@ -1,0 +1,426 @@
+rem
+rem VERSIONS (Full)
+rem
+
+_version_commandlineprompt:
+ `
+ rem Triggers use of file map messaging
+ if lower$(cl$())="-t"
+  gtestgamemodefromeditor=1
+ endif
+ `
+return
+
+_version_endofinit:
+
+rem Ensure full game flag never set!!
+`grealgameviewstate=0 `demo versions with noEXEsave do this
+
+ rem Game Engine Demo would send this into filemap of OS
+` filemapname$="FPSCComm"
+` write filemap value filemapname$,42
+` write filemap string filemapname$,"demo version"
+
+return
+
+_version_setresolution:
+
+`X10 now picks up resolution from windows desktop size (for now)
+`rem And finally switch the resolution if different from default
+`if gdisplaywidth<>800 or gdisplayheight<>600 or gdisplaydepth<>32
+` triggerdisplaymodechange=1
+`endif
+`rem Set the display if triggered
+`if triggerdisplaymodechange=1
+` if gdisplaywidth=0
+`  gdisplaywidth=800
+`  gdisplayheight=600
+`  gdisplaydepth=32
+` endif
+` set display mode gdisplaywidth,gdisplayheight,gdisplaydepth
+` triggerdisplaymodechange=0
+`endif
+
+return
+
+_version_splashtext:
+ `
+ rem Update Splash Text
+ open file map 2, "FPSSPLASH"
+ set file map dword 2, 4, 1
+ set file map string$ 2, 1000, strarr$(392)
+ set file map dword 2, 8, 1
+ wait for file map event 2
+ close file map 2
+ `
+return
+
+_version_onscreenlogos:
+return
+
+_version_permittestgame:
+ `
+ rem Map Editor launches test game
+ open file map 1,"FPSEXCHANGE"
+ set file map string$ 1, 1000, "bin\FPSC-Game.exe"
+ set file map string$ 1, 1256, "-t"
+ set file map dword 1, 920, 1
+ wait for file map event 1
+ close file map 1
+ `
+return
+
+_version_resourcewarning:
+return
+
+_version_universe_savelightdata:
+  `
+  filename$=myownrootdir$+"levelbank\testlevel\universe.lgt"
+  if file exist(filename$)=1 then delete file filename$
+  open to write 1,filename$
+   tinfinimax=array count(infinilight())
+   write file 1,tinfinimax
+   for i=0 to tinfinimax
+    write file 1,infinilight(i).used
+    write file 1,infinilight(i).type
+    write float 1,infinilight(i).x
+    write float 1,infinilight(i).y
+    write float 1,infinilight(i).z
+    write float 1,infinilight(i).range
+    write file 1,infinilight(i).id
+    write float 1,infinilight(i).dist
+    write file 1,infinilight(i).colrgb.r
+    write file 1,infinilight(i).colrgb.g
+    write file 1,infinilight(i).colrgb.b
+    write file 1,infinilight(i).islit
+   next i
+  close file 1
+  `
+return
+
+_version_universe_construct:
+  `
+  rem Save newer elements list (that includes scene dynamic entities)
+  elementsfilename$=myownrootdir$+"levelbank\testlevel\universe.ele" : gosub _entity_saveelementsdata
+  `
+  rem Save light data
+  gosub _version_universe_savelightdata
+  `
+  rem New entities may have been aded, resave map.ent for transfer to level area
+  gosub _entity_savebank
+  `
+  rem Copy over key map data files this level required
+  for tkey=1 to 4
+   if tkey=1 then tfile$=myownrootdir$+"levelbank\testlevel\header.dat" : tfile2$=myownrootdir$+"mapbank\testmap\header.dat"
+   if tkey=2 then tfile$=myownrootdir$+"levelbank\testlevel\map.fpmb" : tfile2$=myownrootdir$+"mapbank\testmap\map.fpmb"
+   if tkey=3 then tfile$=myownrootdir$+"levelbank\testlevel\map.ent" : tfile2$=myownrootdir$+"mapbank\testmap\map.ent"
+   if tkey=4 then tfile$=myownrootdir$+"levelbank\testlevel\map.way" : tfile2$=myownrootdir$+"mapbank\testmap\map.way"
+   if file exist(tfile$)=1 then delete file tfile$
+   copy file tfile2$,tfile$
+  next tkey
+  `
+  rem Save ALL data in leveltest under a level file FPL (for use to extract new levels to play)
+  gosub _mapfile_save_fpl
+  `
+return
+
+_version_buildgame:
+ `
+ rem Is called when BUILD GAME selected from file menu
+ gosub _interface_openbuildgame : gosub _interface_handlebuildgame :  gosub _interface_closebuildgame
+ `
+return
+
+_version_main_game_buildexe:
+
+rem Despot file collection
+if file exist(myownrootdir$+"buildfiles.ini")=1 then delete file myownrootdir$+"buildfiles.ini"
+save array myownrootdir$+"buildfiles.ini",filecollection$()
+
+rem Store root folder
+rootpath$=get dir$()
+
+rem Name without EXE
+exename$=gbuildname$
+if lower$(right$(exename$,4))=".exe"
+ exename$=left$(exename$,len(exename$)-4)
+endif
+
+rem Path to EXE
+if mid$(gbuildpath$,2)=":"
+ exepath$=gbuildpath$
+else
+ exepath$=exedir$
+endif
+if right$(exepath$,1)<>"\" then exepath$=exepath$+"\"
+if path exist(exepath$)=0
+ exepath$=mydocumentsdir$+myfpscx10files$+"\X10 executables\"
+endif
+
+rem X10 new Vista destination for games
+if path exist(exepath$)=0
+ rem this should not happen as the files are copied each new install per user
+ set dir mydocumentsdir$
+ if path exist(myfpscx10files$)=0
+  make directory myfpscx10files$
+  set dir myfpscx10files$
+  make directory "X10 executables"
+ endif
+endif
+
+rem Create game folder
+set dir exepath$
+make directory exename$
+set dir exename$
+make directory "Files"
+set dir "Files"
+
+rem FPSCV10X, ensure gamesaves files are removed (if any)
+if path exist("gamesaves")=1
+ set dir "gamesaves"
+ perform checklist for files
+ for c=1 to checklist quantity()
+  tfile$=checklist string$(c)
+  if len(tfile$)>2
+   if file exist(tfile$)=1 then delete file tfile$
+  endif
+ next c
+ set dir ".."
+else
+ make directory "gamesaves"
+endif
+
+rem Make sure there is a videobank folder (for movie capture results in standalone games)
+if path exist("videobank")=0
+ make directory "videobank"
+endif
+
+rem ensure file path exists (by creating folders)
+filesmax=array count(filecollection$())
+for fileindex=0 to filesmax
+ olddir$=get dir$()
+ src$=filecollection$(fileindex)
+ srcstring$=src$
+ while len(srcstring$)>0
+  for c=1 to len(srcstring$)
+   if mid$(srcstring$,c)="\" or mid$(srcstring$,c)="/"
+    chunk$=left$(srcstring$,c-1)
+    if len(chunk$)>0
+     if path exist(chunk$)=0 then make directory chunk$
+     set dir chunk$
+    endif
+    srcstring$=right$(srcstring$,len(srcstring$)-c)
+    exit
+   endif
+  next c
+  if c>len(srcstring$) then exit
+ endwhile
+ set dir olddir$
+next fileindex
+
+rem X10 trace files 110407
+dim getall$(filesmax+32) : getall=0
+
+rem copy file collection to exe folder
+rem Vista has fun here, copying virtual files I since deleted :) 110407
+set dir rootpath$
+debugviewtext(-1,strarr$(393))
+for fileindex=0 to filesmax
+ `
+ rem Start with local relative path to required file
+ src$=filecollection$(fileindex) : srcorig$=src$
+ `
+ rem X10 always defer to mydoc folder
+ if file exist(myownrootdir$+srcorig$)=1 then src$=myownrootdir$+srcorig$
+ `
+ rem X10 if preferred HUD colour scheme, defer if scheme file exists
+ colorscheme$="Grey"
+ if len(colorscheme$)>0
+  mainhudfolder$=lower$("languagebank\"+language$+"\gamecore\")
+  tchoppy$=lower$(left$(srcorig$,len(mainhudfolder$)))
+  if tchoppy$=mainhudfolder$
+   tchoppy$=lower$(right$(srcorig$,len(srcorig$)-len(mainhudfolder$)))
+   tchoppysrc$="languagebank\"+language$+"\gamecore\colorschemes\"+colorscheme$+"\"+tchoppy$
+   if file exist(tchoppysrc$)=1 then src$=tchoppysrc$
+  endif
+ endif
+ `
+ rem copy to detination
+ dest$=exepath$+exename$+"\Files\"+srcorig$
+ if file exist(dest$)=1 then delete file dest$
+ if file exist(src$)=1
+  copy file src$,dest$
+ endif
+ `
+ rem trace activity
+ if file exist(srcorig$)=0 and file exist(src$)=0
+  getall$(getall)=srcorig$+" not found in core or mydoc folder - "+get dir$()  
+ else
+  if file exist(myownrootdir$+srcorig$)=1
+   getall$(getall)=srcorig$+" copied from mydoc."
+  else
+   getall$(getall)=srcorig$+" copied from core."
+  endif
+ endif
+ inc getall
+ `
+next fileindex
+
+rem X10 trace un copied files 110407
+ttfile$=exepath$+exename$+"\manifest.txt"
+if file exist(ttfile$)=1 then delete file ttfile$
+save array ttfile$,getall$()
+
+rem x10 copy extra shader files
+if 1
+ set dir rootpath$
+ dest$=exepath$+exename$+"\Files\effectbank\simple\basepool.fx"
+ if file exist(dest$)=1 then delete file dest$
+ copy file "effectbank\simple\basepool.fx",dest$
+ dest$=exepath$+exename$+"\Files\effectbank\skinning\basepool.fx"
+ if file exist(dest$)=1 then delete file dest$
+ copy file "effectbank\skinning\basepool.fx",dest$
+ dest$=exepath$+exename$+"\Files\effectbank\universe\basepool.fx"
+ if file exist(dest$)=1 then delete file dest$
+ copy file "effectbank\universe\basepool.fx",dest$
+endif
+
+rem copy game engine and rename it
+set dir rootpath$ : set dir ".."
+dest$=exepath$+exename$+"\"+exename$+".exe"
+if file exist(dest$)=1 then delete file dest$
+copy file "bin\FPSC-Game.exe",dest$
+
+rem create a setup.ini file here reflecting game
+dim setuparr$(999)
+setupfile$=exepath$+exename$+"\Files\setup.ini" : i=0
+setuparr$(i)="[GAMERUN]" : inc i
+setuparr$(i)="realgameview=1" : inc i
+`x9setuparr$(i)="dynamiclighting="+str$(gdynamiclightingstate) : inc i
+setuparr$(i)="defaultwaterlevel="+str$(gdefaultwaterlevelstate) : inc i
+setuparr$(i)="dynamicshadows="+str$(gdynamicshadowsstate) : inc i
+setuparr$(i)="useeffects="+str$( guseeffectstate ) : inc i
+setuparr$(i)="useeffectsonguns="+str$( guseeffectongunsstate ) : inc i
+setuparr$(i)="useeffectsonscene="+str$( guseeffectonscenesstate ) : inc i
+setuparr$(i)="useeffectsonentities="+str$( guseeffectonentitiesstate ) : inc i
+setuparr$(i)="useeffectsonessentials="+str$( guseeffectsonessentials ) : inc i
+setuparr$(i)="dividetexturesize="+str$( gdividetexturesize ) : inc i
+setuparr$(i)="" : inc i
+`
+setuparr$(i)="[VISUALS]" : inc i
+`x9setuparr$(i)="width="+str$( gdisplaywidth ) : inc i
+`setuparr$(i)="height="+str$( gdisplayheight ) : inc i
+`setuparr$(i)="depth="+str$( gdisplaydepth ) : inc i
+setuparr$(i)="bloodmode="+bloodmode$ : inc i
+setuparr$(i)="capturecodec="+gx10settingcapturecodec$ : inc i
+setuparr$(i)="capturecompression="+str$( gx10settingcapturecompression ) : inc i
+setuparr$(i)="capturewidth="+str$( gx10settingcapturewidth ) : inc i
+setuparr$(i)="captureheight="+str$( gx10settingcaptureheight ) : inc i
+setuparr$(i)="capturefps="+str$( gx10settingcapturefps ) : inc i
+setuparr$(i)="capturethreaded="+str$( gx10settingcapturethreaded ) : inc i
+setuparr$(i)="capturewait="+str$( gx10settingcapturewait ) : inc i
+`
+setuparr$(i)="" : inc i
+setuparr$(i)="[GAMEMULTIPLAYER]" : inc i
+setuparr$(i)="multiplayergame="+str$(gmultiplayergame) : inc i
+setuparr$(i)="gameobjectivetype="+str$(ggameobjectivetype) : inc i
+setuparr$(i)="gameobjectivevalue="+str$(ggameobjectivevalue) : inc i
+setuparr$(i)="oneshotkills="+str$(goneshotkills) : inc i
+setuparr$(i)="maxplayers="+str$(numberofplayers) : inc i
+setuparr$(i)="spawnrandom="+str$(gspawnrandom) : inc i
+setuparr$(i)="uniquegamecode="+guniquegamecode$ : inc i
+`
+setuparr$(i)="" : inc i
+setuparr$(i)="[GAMEDEBUG]" : inc i
+setuparr$(i)="usesky=1" : inc i
+setuparr$(i)="usefloor="+str$( gusefloorstate ) : inc i
+setuparr$(i)="useenvsounds=1" : inc i
+setuparr$(i)="useweapons=1" : inc i
+setuparr$(i)="" : inc i
+setuparr$(i)="[GAMEPROFILE]" : inc i
+setuparr$(i)="title="+titlefpi$ : inc i
+setuparr$(i)="global="+setupfpi$ : inc i
+setuparr$(i)="gamewon="+gamewonfpi$ : inc i
+setuparr$(i)="gameover="+gameoverfpi$ : inc i
+for num=1 to 11
+ setuparr$(i)="key"+str$(num)+"="+str$(listkey(num)) : inc i
+next num
+for num=1 to 9
+ setuparr$(i)="slot"+str$(num)+"="+gunslots$(num) : inc i
+next num
+setuparr$(i)="levelmax="+str$(glevelmax) : inc i
+for num=1 to glevelmax
+ setuparr$(i)="levelfpm"+str$(num)+"="+level$(num).fpm$ : inc i
+ setuparr$(i)="levelfpi"+str$(num)+"="+level$(num).fpi$ : inc i
+next num
+if file exist(setupfile$)=1 then delete file setupfile$
+save array setupfile$,setuparr$()
+undim setuparr$()
+`
+rem Also save out the localisation ptr file
+dim setuparr$(2)
+setupfile$=exepath$+exename$+"\userdetails.ini"
+setuparr$(0)="[LOCALIZATION]"
+setuparr$(1)="language="+language$
+save array setupfile$,setuparr$()
+undim setuparr$()
+`
+rem Restore directory
+set dir rootpath$
+
+return
+
+_version_includesplashfile:
+ if 1
+  rem not for EnglishDVD version, but is in OEM
+  addfiletocollection("splash.jpg")
+ endif
+return
+
+_version_dosplash:
+ `
+ rem FREEWARE OEM VERSION REQUIRES THIS
+ rem SHAREWARE AND COMMERCIAL VERSIONS DO NOT REQUIRE THIS
+ if 1
+  `
+  rem need to have the file present
+  if file exist("splash.jpg")=0
+   exit prompt "Splash Screen Data Missing!","Protection Error" : end
+  endif
+  `
+  rem file size must match
+  if lower$(language$)="english"
+   splashimagesize=64259
+   if file size("splash.jpg")<>splashimagesize
+    exit prompt "Splash Screen Data Has Been Altered!","Protection Error" : end
+   endif
+  endif
+  `
+  rem pass in delay to look at this screen dosplashdelay
+  if dosplashdelay>0
+   sync mask %1
+   cls 0 : sync : cls 0 : sync
+   if file exist("splash.jpg")=1
+    load image "splash.jpg",1
+    if image exist(1)=1
+     set sprite 1,0,1
+     sprite 1,0,0,1
+     set sprite alpha 1,0
+     size sprite 1,screen width(),screen height()
+     for f=0 to 255 step 10
+      cls 0 : set sprite alpha 1,f
+      sync
+     next f
+     set sprite alpha 1,255
+     while dosplashdelay>0 and scancode()=0
+      dec dosplashdelay
+      sleep 2
+     endwhile
+     cls 0 : sync : cls 0 : sync
+    endif
+   endif
+  endif
+  `
+ endif
+ `
+return
