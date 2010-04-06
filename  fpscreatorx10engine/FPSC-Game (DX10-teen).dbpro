@@ -58,7 +58,7 @@ window resolution=800x600
 
 
 ;*****Media files, icons, cursors*****
-media root path=C:\TGC\X10\FPSCREATORX10\
+media root path=C:\TGCSHARED\FPS Creator X10 Shared\
 icon1=iconX10.ico
 icon2=iconX10.ico
 icon3=iconX10.ico
@@ -100,6 +100,20 @@ icon38=iconX10.ico
 icon39=iconX10.ico
 icon40=iconX10.ico
 icon41=iconX10.ico
+icon42=iconX10.ico
+icon43=iconX10.ico
+icon44=iconX10.ico
+icon45=iconX10.ico
+icon46=iconX10.ico
+icon47=iconX10.ico
+icon48=iconX10.ico
+icon49=iconX10.ico
+icon50=iconX10.ico
+icon51=iconX10.ico
+icon52=iconX10.ico
+icon53=iconX10.ico
+icon54=iconX10.ico
+icon55=iconX10.ico
 cursor1=FILES\EDITORS\GFX\MOVE4WAY.CUR
 cursor2=FILES\EDITORS\GFX\MOVE4WAY.CUR
 cursor3=FILES\EDITORS\GFX\MOVE4WAY.CUR
@@ -141,6 +155,21 @@ cursor38=FILES\EDITORS\GFX\MOVE4WAY.CUR
 cursor39=FILES\EDITORS\GFX\MOVE4WAY.CUR
 cursor40=FILES\EDITORS\GFX\MOVE4WAY.CUR
 cursor41=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor42=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor43=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor44=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor45=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor46=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor47=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor48=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor49=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor50=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor51=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor52=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor53=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor54=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor55=FILES\EDITORS\GFX\MOVE4WAY.CUR
+cursor56=FILES\EDITORS\GFX\MOVE4WAY.CUR
 
 ;****Version Information****
 VerComments=
